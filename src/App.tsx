@@ -1,15 +1,11 @@
+import { AuthProvider } from './contexts/AuthContext'
+import { AppRouter } from './router/AppRouter'
+
 function App() {
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          aleris.ops
-        </h1>
-        <p className="text-gray-600">
-          SaaS Horizontal Multi-Tenant
-        </p>
-      </div>
-    </div>
+    <AuthProvider>
+      <AppRouter />
+    </AuthProvider>
   )
 }
 
