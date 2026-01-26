@@ -6,7 +6,7 @@ import {
   Plus, Search, Phone, MapPin, User, 
   Briefcase, Star, Building2, Calendar, Users, MessageSquare, 
   Loader2, Trash2, Clock, DollarSign, Percent, Shield,
-  Save
+  Save, Mail
 } from 'lucide-react'
 import { Drawer } from '../components/Drawer'
 import { useToast } from '../hooks/useToast'
@@ -51,28 +51,36 @@ export function StaffPage() {
   // 🟢 OPTIMIZACIÓN: Extraemos el ID para usarlo como dependencia estable
   const orgId = (profile as any)?.organization_id
 
-  // ESTADOS
+  // ESTADOS PRINCIPALES
   const [loading, setLoading] = useState(true)
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  // ESTADOS DRAWER DETALLE
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null)
   const [activeTab, setActiveTab] = useState<'profile' | 'branches' | 'schedule' | 'classes' | 'students' | 'reviews'>('profile')
-
   const [detailsLoading, setDetailsLoading] = useState(false)
+  
+  // ESTADOS DRAWER CREAR (INVITACIÓN)
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('staff')
+  const [isInviting, setIsInviting] = useState(false)
+
+  // ESTADOS DATOS DETALLE
   const [assignedBranches, setAssignedBranches] = useState<Branch[]>([])
   const [allBranches, setAllBranches] = useState<Branch[]>([])
   const [reviews, setReviews] = useState<Review[]>([])
   const [upcomingClasses, setUpcomingClasses] = useState<Appointment[]>([])
   const [myStudents, setMyStudents] = useState<Student[]>([])
 
+  // ESTADOS HORARIO
   const [scheduleBranchId, setScheduleBranchId] = useState<string>('')
   const [weeklySchedule, setWeeklySchedule] = useState<WorkDay[]>([])
   const [loadingSchedule, setLoadingSchedule] = useState(false)
   const [isSavingSchedule, setIsSavingSchedule] = useState(false)
 
-  // Inputs como strings para mejor UX
+  // Inputs perfil como strings para mejor UX
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', email: '', 
     phone: '', specialty: '', 
@@ -82,11 +90,10 @@ export function StaffPage() {
 
   // --- CARGA INICIAL OPTIMIZADA ---
   useEffect(() => {
-    // Solo se ejecuta si cambia el ID, no el objeto entero
     if (!authLoading && orgId) {
         loadStaff()
     }
-  }, [orgId, authLoading]) // 👈 Dependencia estable
+  }, [orgId, authLoading])
 
   const loadStaff = async () => {
     setLoading(true)
@@ -111,7 +118,7 @@ export function StaffPage() {
     }
   }
 
-  // --- ABRIR DRAWER ---
+  // --- ABRIR DRAWER DETALLE ---
   const handleStaffClick = async (member: StaffMember) => {
     setSelectedStaff(member)
     setActiveTab('profile')
@@ -311,10 +318,32 @@ export function StaffPage() {
     } catch (err) { showToast('Error', 'error') }
   }
 
-  const handleCreate = async (e: React.FormEvent) => {
+  // 🟢 CAMBIO PRINCIPAL: INVITAR EN VEZ DE CREAR FANTASMA
+  const handleInvite = async (e: React.FormEvent) => {
       e.preventDefault()
-      showToast('Funcionalidad de invitación enviada', 'info')
-      setIsCreateOpen(false)
+      if (!orgId) return
+      
+      setIsInviting(true)
+      try {
+          // 1. Guardar en la tabla de invitaciones
+          const { error } = await supabase.from('organization_invitations').insert({
+              email: inviteEmail.trim().toLowerCase(),
+              organization_id: orgId,
+              role: inviteRole,
+              status: 'pending'
+          })
+
+          if (error) throw error
+
+          showToast('Invitación registrada exitosamente.', 'success')
+          setIsCreateOpen(false)
+          setInviteEmail('')
+      } catch (err: any) {
+          console.error(err)
+          showToast(err.message || 'Error al crear invitación', 'error')
+      } finally {
+          setIsInviting(false)
+      }
   }
 
   const filteredStaff = staff.filter(s => s.full_name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -464,6 +493,7 @@ export function StaffPage() {
                         </div>
                     )}
 
+                    {/* Resto de tabs (branches, schedule, etc...) igual que antes */}
                     {activeTab === 'branches' && (
                         <div className="space-y-4">
                             <div className="bg-zinc-900/50 p-4 rounded-xl border border-zinc-800">
@@ -599,14 +629,44 @@ export function StaffPage() {
         </Drawer>
       )}
 
-      <Drawer isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="Agregar al Equipo">
-          <form onSubmit={handleCreate} className="space-y-4">
-             <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded text-center">
+      {/* 🟢 NUEVO DRAWER DE INVITACIÓN */}
+      <Drawer isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="Invitar al Equipo">
+          <form onSubmit={handleInvite} className="space-y-4">
+             <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded">
                 <p className="text-zinc-400 text-sm mb-4">
-                    Para agregar personal nuevo, debes enviar una invitación por correo.
+                    Registra el correo del nuevo miembro. Cuando esa persona se cree una cuenta en la app, 
+                    será asignada automáticamente a tu organización.
                 </p>
-                <input type="email" placeholder="correo@empleado.com" required className="w-full bg-black border border-zinc-700 rounded p-3 text-white mb-4" />
-                <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3 rounded">Enviar Invitación</button>
+                
+                <div className="space-y-3">
+                    <div>
+                        <label className="block text-xs font-bold text-zinc-500 mb-1 flex items-center gap-1"><Mail size={12}/> Correo Electrónico</label>
+                        <input 
+                            type="email" 
+                            placeholder="correo@empleado.com" 
+                            required 
+                            value={inviteEmail}
+                            onChange={e => setInviteEmail(e.target.value)}
+                            className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none" 
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-zinc-500 mb-1 flex items-center gap-1"><Shield size={12}/> Rol</label>
+                        <select 
+                            value={inviteRole}
+                            onChange={e => setInviteRole(e.target.value)}
+                            className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none"
+                        >
+                            <option value="staff">Staff Administrativo</option>
+                            <option value="teacher">Profesor / Instructor</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button type="submit" disabled={isInviting} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded mt-4 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                    {isInviting ? <Loader2 className="animate-spin" size={18}/> : 'Registrar Invitación'}
+                </button>
              </div>
           </form>
       </Drawer>
