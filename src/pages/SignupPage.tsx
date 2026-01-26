@@ -20,7 +20,6 @@ export function SignupPage() {
     setError(null)
     setLoading(true)
 
-    // CAMBIO 1: Ya no obligamos a tener organizationName
     if (!email || !password || !fullName) {
       setError('Por favor completa los campos obligatorios')
       setLoading(false)
@@ -34,18 +33,15 @@ export function SignupPage() {
     }
 
     try {
-        // Enviamos los datos. Si organizationName está vacío, enviamos string vacío.
-        // El Trigger de SQL se encargará del resto.
         const { error } = await signUp(email, password, {
             data: {
                 full_name: fullName,
-                organization_name: organizationName || 'Mi Organización' // Fallback solo si es dueño
+                organization_name: organizationName || 'Mi Organización'
             }
         })
 
         if (error) throw error
         
-        // Éxito
         navigate('/dashboard')
         
     } catch (err: any) {
@@ -58,8 +54,18 @@ export function SignupPage() {
   return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-white mb-2">AXIS.ops</h1>
+        <div className="text-center flex flex-col items-center">
+          {/* 🟢 CAMBIO: Usamos el logo SVG en lugar de texto plano */}
+          <img 
+            src="/aleris-logo.svg" 
+            alt="ALERIS.ops Logo" 
+            className="h-16 w-auto mb-4" 
+            // Si el logo es negro y el fondo es negro, podrías necesitar un filtro
+            // style={{ filter: 'invert(1)' }} 
+          />
+          {/* Si el logo ya tiene las letras, borra este h1. Si es solo el isotipo, déjalo. */}
+          {/* <h1 className="text-3xl font-bold text-white mb-2">ALERIS.ops</h1> */}
+          
           <p className="text-zinc-400">Gestiona tu negocio o únete a tu equipo</p>
         </div>
 
@@ -138,7 +144,6 @@ export function SignupPage() {
                 <input
                     id="organizationName"
                     type="text"
-                    // CAMBIO 2: Quitamos el 'required'
                     value={organizationName}
                     onChange={(e) => setOrganizationName(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-md text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-700"
