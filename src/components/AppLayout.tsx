@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { 
-  Menu, X, LogOut, 
+ X, LogOut, 
   Home, Settings, Tag, Calendar, Wallet, 
   Users, UserCog, Building2, CreditCard, MoreHorizontal 
 } from 'lucide-react'
