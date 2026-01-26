@@ -1,0 +1,23 @@
+<svg width="420" height="120" viewBox="0 0 420 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="alerisGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1CB5E0"/>
+      <stop offset="100%" stop-color="#2E8B8B"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(20,20)">
+    <rect x="0" y="0" width="32" height="32" rx="6" fill="url(#alerisGradient)"/>
+    <rect x="18" y="18" width="32" height="32" rx="6" fill="url(#alerisGradient)" opacity="0.85"/>
+    <rect x="36" y="0" width="32" height="32" rx="6" fill="url(#alerisGradient)" opacity="0.7"/>
+  </g>
+
+  <text x="120" y="70"
+        font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+        font-size="48"
+        font-weight="600"
+        fill="#1F2933"
+        letter-spacing="2">
+    aleris
+  </text>
+</svg>
