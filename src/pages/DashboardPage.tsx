@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { 
   AlertCircle, TrendingUp, Users, Briefcase, 
   ArrowUpRight, Activity, MapPin, Calendar, CheckCircle2,
-  DollarSign, Wallet, ArrowRight, Loader2 
+  DollarSign, Wallet, ArrowRight
 } from 'lucide-react'
 
 interface ExtendedProfile {

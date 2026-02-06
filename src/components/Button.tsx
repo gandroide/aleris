@@ -1,4 +1,5 @@
-import { ButtonHTMLAttributes, ReactNode, forwardRef } from 'react'
+import { forwardRef } from 'react'
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Loader2 } from 'lucide-react'
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

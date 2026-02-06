@@ -74,7 +74,7 @@ export default function CalendarPage() {
     service_id: '',
     start_time: '09:00',
     is_private: false,
-    payment_method: 'transfer' as 'cash' | 'card' | 'transfer'
+    payment_method: 'transfer' as 'cash' | 'card' | 'transfer' | null
   }
   const [formData, setFormData] = useState(initialFormState)
 
@@ -220,7 +220,8 @@ export default function CalendarPage() {
       generic_teacher_id: currentTeacherId,
       service_id: apt.service_id,
       start_time: timeOnly,
-      is_private: apt.is_private_class
+      is_private: apt.is_private_class,
+      payment_method: null
     })
     
     checkStudentMemberships(apt.student_id)

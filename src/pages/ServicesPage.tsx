@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { 
   Plus, Search, Tag, Package, CalendarRange, 
   MoreVertical, DollarSign, Archive, Trash2,
-  CreditCard, CalendarDays, Check, Loader2 
+  CreditCard, CalendarDays, Loader2 
 } from 'lucide-react'
 import { Drawer } from '../components/Drawer'
 import { useToast } from '../hooks/useToast'

@@ -87,7 +87,7 @@ export default function SettingsPage() {
           </h3>
           <span className={`text-xs font-bold px-2 py-1 rounded border uppercase 
             ${isOwner ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/50' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50'}`}>
-            {userRole === 'professional' ? 'Agenda' : userRole}
+            {userRole === 'staff' ? 'Agenda' : userRole}
           </span>
         </div>
         

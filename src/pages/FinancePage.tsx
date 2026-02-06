@@ -23,11 +23,10 @@ interface Transaction {
 
 interface Student { id: string; first_name: string; last_name: string }
 
-// 🟢 CAMBIO 1: Interfaz unificada para la nómina
 interface PayrollItem {
-  id: string // ID del empleado (puede ser profile o professional)
+  id: string 
   full_name: string
-  type: string // 'system' | 'professional'
+  type: string 
   base_salary: number
   commission_rate: number
   private_classes_count: number
@@ -36,21 +35,20 @@ interface PayrollItem {
   total_payable: number
 }
 
+// 🟢 CORRECCIÓN: Interfaz ajustada para manejar el array que devuelve Supabase en el select
 interface Plan {
   id: string
   name: string
   price: number
   duration_days: number
   service_id?: string | null
-  service?: { name: string } | null
+  service?: { name: string } | null // Lo trataremos como objeto después de normalizarlo
 }
 
 export default function FinancePage() {
   const { profile } = useAuth()
   const { toasts, showToast, removeToast } = useToast()
   
-  // 🟢 OPTIMIZACIÓN: Extraemos el ID para usarlo como dependencia estable
-  // Esto evita que la página recargue datos al cambiar de pestaña si el objeto 'profile' se regenera
   const orgId = (profile as any)?.organization_id
 
   // ESTADOS GENERALES
@@ -81,9 +79,7 @@ export default function FinancePage() {
     concept: '' 
   })
 
-  // --- CARGA DE DATOS PRINCIPALES ---
   const loadFinanceData = useCallback(async () => {
-    // Usamos la variable estable 'orgId' en lugar de 'profile'
     if (!orgId) return
 
     setLoading(true)
@@ -91,7 +87,6 @@ export default function FinancePage() {
       const start = startOfMonth(currentDate).toISOString()
       const end = endOfMonth(currentDate).toISOString()
 
-      // 1. TRANSACCIONES (Ingresos)
       const { data: txs, error: txError } = await supabase
         .from('transactions')
         .select('*, students!fk_transactions_student(first_name, last_name)')
@@ -105,20 +100,16 @@ export default function FinancePage() {
       setTransactions(txData)
       setIncomeTotal(txData.reduce((sum, t) => sum + Number(t.amount), 0))
 
-      // 2. NÓMINA (STAFF + PROFESIONALES)
-      // 🟢 CAMBIO 2: Usamos la vista 'staff_details_view' para traer a todos
       const { data: allStaff } = await supabase
         .from('staff_details_view')
-        .select('id, full_name, base_salary, commission_percentage, type') // type es importante
+        .select('id, full_name, base_salary, commission_percentage, type')
         .eq('organization_id', orgId)
       
-      // Traemos las citas del mes (con precio)
-      // Necesitamos profile_id Y professional_id para saber de quién fue la venta
       const { data: appts } = await supabase
         .from('appointments')
         .select('profile_id, professional_id, price_at_booking')
         .eq('organization_id', orgId)
-        .eq('is_private_class', true) // Solo calculamos comisión sobre privadas (puedes quitar esto si aplica a todo)
+        .eq('is_private_class', true)
         .gte('start_time', start)
         .lte('start_time', end)
 
@@ -126,7 +117,6 @@ export default function FinancePage() {
         let totalPayrollCalc = 0
         
         const payrollList: PayrollItem[] = allStaff.map(person => {
-            // Filtrar las clases de ESTA persona
             const myClasses = appts.filter(a => {
                 if (person.type === 'system') return a.profile_id === person.id
                 return a.professional_id === person.id
@@ -134,8 +124,6 @@ export default function FinancePage() {
 
             const count = myClasses.length
             const totalSales = myClasses.reduce((sum, c) => sum + (c.price_at_booking || 0), 0)
-            
-            // Cálculo financiero
             const commissionAmt = totalSales * (person.commission_percentage || 0)
             const base = person.base_salary || 0
             const totalPay = base + commissionAmt
@@ -164,27 +152,36 @@ export default function FinancePage() {
     } finally {
       setLoading(false)
     }
-  }, [orgId, currentDate]) // 🟢 Dependencia estable: orgId (string) en vez de profile (objeto)
+  }, [orgId, currentDate])
 
-  // 🟢 EFECTO DE CARGA OPTIMIZADO
   useEffect(() => { 
       loadFinanceData() 
   }, [loadFinanceData]) 
 
-  // --- CARGA DE SELECTS ---
   useEffect(() => {
-    if (isDrawerOpen && orgId) { // Verificamos orgId
+    if (isDrawerOpen && orgId) {
       const loadSelects = async () => {
-        
         const { data: stData } = await supabase.from('students').select('id, first_name, last_name').eq('organization_id', orgId)
         setStudents(stData || [])
 
-        const { data: plData } = await supabase.from('plans').select('id, name, price, duration_days, service_id, service:services!fk_plans_service(name)').eq('organization_id', orgId).eq('is_active', true)
-        setPlans(plData || [])
+        // 🟢 CORRECCIÓN: Normalizamos el array 'service' a un objeto único
+        const { data: plData } = await supabase
+            .from('plans')
+            .select('id, name, price, duration_days, service_id, service:services!fk_plans_service(name)')
+            .eq('organization_id', orgId)
+            .eq('is_active', true)
+        
+        if (plData) {
+            const normalizedPlans = plData.map((plan: any) => ({
+                ...plan,
+                service: Array.isArray(plan.service) ? plan.service[0] : plan.service
+            }))
+            setPlans(normalizedPlans)
+        }
       }
       loadSelects()
     }
-  }, [isDrawerOpen, orgId]) // 🟢 Dependencia estable
+  }, [isDrawerOpen, orgId])
 
   const handlePlanChange = (planId: string) => {
     setSelectedPlanId(planId)
@@ -206,7 +203,7 @@ export default function FinancePage() {
       const branchId = (profile as any)?.assigned_branch_id 
 
       const { error: txError } = await supabase.from('transactions').insert({
-        organization_id: orgId, // Usamos la variable estable
+        organization_id: orgId,
         branch_id: branchId,
         student_id: formData.student_id,
         amount: parseFloat(formData.amount),
@@ -232,7 +229,6 @@ export default function FinancePage() {
             }).select()
             if (memError) throw memError
 
-            // 🆕 GENERAR CLASES RECURRENTES SI EL PLAN LAS TIENE CONFIGURADAS
             if (membershipData && membershipData[0]) {
                 const membershipId = membershipData[0].id
                 const { data: recurringResult, error: recurringError } = await supabase
@@ -245,13 +241,12 @@ export default function FinancePage() {
                     const appointmentsCreated = recurringResult[0].appointments_created
                     if (appointmentsCreated > 0) {
                         showToast(`Membresía activada con ${appointmentsCreated} clases programadas automáticamente 🎉`, 'success')
-                        // No mostrar el toast genérico
                         setIsDrawerOpen(false)
                         setFormData({ student_id: '', amount: '', payment_method: 'transfer', concept: '' })
                         setSaleType('custom')
                         setSelectedPlanId('')
                         loadFinanceData()
-                        return // Salir temprano para no mostrar el toast genérico
+                        return 
                     }
                 }
             }
@@ -260,11 +255,9 @@ export default function FinancePage() {
       
       showToast(saleType === 'plan' ? 'Membresía activada y cobrada' : 'Ingreso registrado', 'success')
       setIsDrawerOpen(false)
-      
       setFormData({ student_id: '', amount: '', payment_method: 'transfer', concept: '' })
       setSaleType('custom')
       setSelectedPlanId('')
-      
       loadFinanceData()
 
     } catch (err: any) {
@@ -286,7 +279,6 @@ export default function FinancePage() {
     <div className="space-y-6">
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -308,7 +300,6 @@ export default function FinancePage() {
         )}
       </div>
 
-      {/* TABS */}
       <div className="flex space-x-1 bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 w-fit">
         <button
           onClick={() => setActiveTab('income')}
@@ -330,7 +321,6 @@ export default function FinancePage() {
         </button>
       </div>
 
-      {/* CONTENT */}
       {loading ? (
         <div className="py-20 flex justify-center"><Loader2 className="animate-spin text-zinc-500" size={30}/></div>
       ) : activeTab === 'income' ? (
@@ -422,7 +412,6 @@ export default function FinancePage() {
         </div>
       )}
 
-      {/* DRAWER: NUEVA VENTA */}
       <Drawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} title="Registrar Venta / Ingreso">
         <form onSubmit={handleCreateTransaction} className="space-y-6" autoComplete="off">
           

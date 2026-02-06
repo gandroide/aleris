@@ -1,6 +1,6 @@
 import { useAuth } from '../contexts/AuthContext'
-import { AdminDashboard } from '../pages/AdminDashboard'
-import { DashboardPage } from '../pages/DashboardPage'
+import  AdminDashboard  from '../pages/AdminDashboard'
+import  DashboardPage  from '../pages/DashboardPage'
 
 
 export function DashboardSwitcher() {
