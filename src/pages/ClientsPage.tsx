@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -28,11 +28,10 @@ type Client = {
 
 type ActiveMembership = {
   id: string
-  plan: { name: string; duration_days: number; class_limit: number | null }
+  plan: { name: string; duration_days: number; service: { name: string } | null }
   start_date: string
   end_date: string
   status: string
-  classes_used: number
 }
 
 type Payment = {
@@ -42,7 +41,7 @@ type Payment = {
   concept: string
 }
 
-export function ClientsPage() {
+export default function ClientsPage() {
   const { profile, loading: authLoading } = useAuth()
   const { toasts, showToast, removeToast } = useToast()
   const navigate = useNavigate()
@@ -116,25 +115,30 @@ export function ClientsPage() {
     setLoadingDetails(true)
     
     try {
-        const { data: memData } = await supabase
-            .from('memberships')
-            .select(`
-                id, start_date, end_date, status, classes_used,
-                plan:plans (name, duration_days, class_limit)
-            `)
-            .eq('student_id', client.id)
-            .eq('status', 'active')
-            .order('end_date', { ascending: true }) 
+        // ✅ OPTIMIZACIÓN: Paralelizar ambas queries
+        const [
+            { data: memData },
+            { data: histData }
+        ] = await Promise.all([
+            supabase
+                .from('memberships')
+                .select(`
+                    id, start_date, end_date, status,
+                    plan:plans!fk_memberships_plan (name, duration_days, service:services!fk_plans_service(name))
+                `)
+                .eq('student_id', client.id)
+                .eq('status', 'active')
+                .order('end_date', { ascending: true }),
+            
+            supabase
+                .from('transactions')
+                .select('*')
+                .eq('student_id', client.id)
+                .order('created_at', { ascending: false })
+                .limit(10)
+        ])
         
         setActiveMemberships(memData as any || [])
-
-        const { data: histData } = await supabase
-            .from('transactions')
-            .select('*')
-            .eq('student_id', client.id)
-            .order('created_at', { ascending: false })
-            .limit(10)
-        
         setHistory(histData || [])
 
     } catch (error) {
@@ -185,8 +189,12 @@ export function ClientsPage() {
     }
   }
 
-  const filteredClients = clients.filter(c =>
-    `${c.first_name} ${c.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
+  // ✅ OPTIMIZACIÓN: Memoizar filtrado para evitar recálculos innecesarios
+  const filteredClients = useMemo(
+    () => clients.filter(c =>
+      `${c.first_name} ${c.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
+    ),
+    [clients, searchTerm]
   )
 
   const getStatusColor = (status: string) => {
@@ -224,46 +232,75 @@ export function ClientsPage() {
         </div>
 
         {loading ? (
-             <div className="flex flex-col items-center justify-center h-64 text-zinc-500">
-                <Loader2 className="animate-spin mb-4" size={32} />
-                <p>Cargando cartera...</p>
+             <div className="flex flex-col items-center justify-center h-64 text-zinc-500 animate-in fade-in duration-300">
+                <Loader2 className="animate-spin mb-4" size={40} />
+                <p className="font-medium">Cargando cartera de clientes...</p>
              </div>
         ) : errorMsg ? (
-            <div className="p-8 bg-red-500/10 border border-red-500/20 rounded-lg text-center text-red-400">{errorMsg}</div>
+            <div className="p-8 bg-red-500/10 border border-red-500/30 rounded-2xl text-center backdrop-blur-sm animate-in fade-in duration-300">
+                <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-3" />
+                <p className="text-red-400 font-semibold">{errorMsg}</p>
+            </div>
         ) : (
             <>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-zinc-400" />
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-zinc-500" />
                   <input
-                    type="text" placeholder="Buscar cliente..."
+                    type="text" placeholder="Buscar por nombre..."
                     value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-zinc-700"
+                    className="input w-full pl-12 bg-zinc-900/50 border-zinc-800 hover:border-zinc-700"
                   />
                 </div>
 
                 {clients.length === 0 ? (
-                    <div className="text-center py-12 border border-zinc-800 border-dashed rounded-lg text-zinc-500">No hay clientes.</div>
+                    <div className="text-center py-20 border border-zinc-800 border-dashed rounded-2xl bg-zinc-900/30 backdrop-blur-sm">
+                        <User className="h-16 w-16 text-zinc-700 mx-auto mb-4" />
+                        <p className="text-zinc-500 font-medium">No hay clientes registrados</p>
+                        <p className="text-zinc-600 text-sm mt-2">Comienza agregando tu primer cliente</p>
+                    </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredClients.map((client) => (
-                        <div key={client.id} onClick={() => handleClientClick(client)}
-                        className="group bg-zinc-900 border border-zinc-800 rounded-lg p-4 hover:border-zinc-600 cursor-pointer transition-all hover:bg-zinc-800/50">
-                            <div className="flex items-start justify-between mb-3">
-                                <div className="flex items-center gap-3">
-                                    <div className="h-10 w-10 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 font-bold border border-zinc-700 group-hover:bg-zinc-700 group-hover:text-white transition-colors">
-                                        {client.first_name[0]}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {filteredClients.map((client, index) => (
+                        <div 
+                            key={client.id} 
+                            onClick={() => handleClientClick(client)}
+                            className="group bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-2xl p-5 hover:border-indigo-500/40 cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-indigo-500/10 card-hover animate-in slide-in-from-bottom duration-500"
+                            style={{ animationDelay: `${index * 0.05}s` }}
+                        >
+                            <div className="flex items-start justify-between mb-4">
+                                <div className="flex items-center gap-3 flex-1">
+                                    <div className="relative">
+                                        <div className="h-12 w-12 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-white font-bold border-2 border-indigo-500/30 group-hover:border-indigo-500/60 transition-colors text-lg shadow-lg">
+                                            {client.first_name[0]}
+                                        </div>
+                                        <div className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-zinc-900 ${
+                                            client.status_label === 'solvente' ? 'bg-emerald-500' : 
+                                            client.status_label === 'moroso' ? 'bg-red-500' : 'bg-zinc-500'
+                                        }`}></div>
                                     </div>
-                                    <div>
-                                        <h3 className="text-white font-medium group-hover:text-indigo-400 transition-colors">
+                                    <div className="flex-1 min-w-0">
+                                        <h3 className="text-white font-bold group-hover:text-indigo-400 transition-colors truncate">
                                             {client.first_name} {client.last_name}
                                         </h3>
-                                        <p className="text-xs text-zinc-500">Ver perfil</p>
+                                        <p className="text-xs text-zinc-500 group-hover:text-zinc-400 transition-colors">Ver expediente completo →</p>
                                     </div>
                                 </div>
-                                <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded border ${getStatusColor(client.status_label)}`}>
-                                    {client.status_label.replace('_', ' ')}
-                                </span>
                             </div>
+                            
+                            {/* Status Badge */}
+                            <div className={`px-3 py-2 text-xs font-bold uppercase rounded-lg border backdrop-blur-sm ${getStatusColor(client.status_label)} flex items-center justify-center gap-2`}>
+                                {client.status_label === 'solvente' ? <CheckCircle2 size={12}/> : <AlertTriangle size={12}/>}
+                                {client.status_label.replace('_', ' ')}
+                            </div>
+                            
+                            {/* Contact Info Preview */}
+                            {(client.email || client.phone) && (
+                                <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-2 text-xs text-zinc-500">
+                                    {client.phone && <Phone size={12} />}
+                                    {client.email && <Mail size={12} />}
+                                    <span className="truncate">{client.email || client.phone}</span>
+                                </div>
+                            )}
                         </div>
                     ))}
                     </div>
@@ -373,7 +410,14 @@ export function ClientsPage() {
                                                     <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-1">
                                                         Plan Activo #{index + 1}
                                                     </p>
-                                                    <h3 className="text-xl font-bold text-white mb-4">{membership.plan?.name}</h3>
+                                                    <h3 className="text-xl font-bold text-white mb-2">{membership.plan?.name}</h3>
+                                                    
+                                                    {/* Servicio cubierto */}
+                                                    {membership.plan?.service && (
+                                                        <div className="inline-flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg text-xs font-bold text-indigo-400 mb-4">
+                                                            <CheckCircle2 size={12}/> Cubre: {membership.plan.service.name}
+                                                        </div>
+                                                    )}
                                                     
                                                     <div className="flex gap-4 mb-4">
                                                         <div className="bg-zinc-900/80 p-2 rounded border border-zinc-800 flex-1">
@@ -397,9 +441,7 @@ export function ClientsPage() {
                                                         />
                                                     </div>
                                                     <p className="text-xs text-right text-zinc-500 mt-1">
-                                                        {membership.plan?.class_limit 
-                                                            ? `${membership.classes_used} / ${membership.plan.class_limit} clases`
-                                                            : 'Ilimitado'}
+                                                        Acceso ilimitado a clases de {membership.plan?.service?.name || 'este servicio'}
                                                     </p>
                                                 </div>
                                             </div>

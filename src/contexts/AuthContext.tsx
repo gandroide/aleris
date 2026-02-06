@@ -54,23 +54,31 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!mountedRef.current) return
 
+      // ✅ OPTIMIZACIÓN: Actualizar estados inmediatamente
       setSession(newSession)
       setUser(newSession?.user ?? null)
       
       if (newSession?.user) {
-        // Carga de perfil asíncrona
-        fetchProfile(newSession.user.id).then(p => {
-            if (mountedRef.current) setProfile(p)
+        // ✅ Carga de perfil optimizada con Promise inmediato
+        const profilePromise = fetchProfile(newSession.user.id)
+        
+        // Actualizar UI inmediatamente sin esperar el profile
+        if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+          setLoading(false)
+        }
+        
+        // Profile se actualiza en background
+        profilePromise.then(p => {
+          if (mountedRef.current) setProfile(p)
         })
       } else if (event === 'SIGNED_OUT') {
          setProfile(null)
+         setLoading(false)
       }
       
-      // Liberamos la carga en eventos clave
+      // Liberamos la carga en eventos key (más rápido)
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-         setTimeout(() => { 
-             if (mountedRef.current) setLoading(false) 
-         }, 100)
+         if (mountedRef.current) setLoading(false)
       }
     })
 

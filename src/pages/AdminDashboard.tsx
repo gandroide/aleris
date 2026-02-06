@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import type { Organization } from '../lib/supabase'
 
-export function AdminDashboard() {
+export default function AdminDashboard() {
   // 🟢 OPTIMIZACIÓN: Extraemos loading para usarlo como control
   const {  loading: authLoading } = useAuth()
   // const navigate = useNavigate()

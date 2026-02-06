@@ -5,7 +5,7 @@ import { Building2, User, Mail, Shield, CreditCard, Lock, Save, Loader2, Globe }
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
 
-export function SettingsPage() {
+export default function SettingsPage() {
   const { profile } = useAuth()
   const { toasts, showToast, removeToast } = useToast()
   
@@ -18,7 +18,7 @@ export function SettingsPage() {
   // ESTADOS
   const [loadingOrg, setLoadingOrg] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [orgData, setOrgData] = useState({ name: '', slug: '' })
+  const [orgData, setOrgData] = useState({ name: '' })
 
   // 2. CARGA DE DATOS OPTIMIZADA
   // Solo se dispara si 'orgId' (texto) cambia. Ignora el resto del objeto profile.
@@ -33,12 +33,12 @@ export function SettingsPage() {
     try {
         const { data, error } = await supabase
             .from('organizations')
-            .select('name, slug')
+            .select('name')
             .eq('id', orgId)
             .single()
         
         if (error) throw error
-        if (data) setOrgData({ name: data.name, slug: data.slug || '' })
+        if (data) setOrgData({ name: data.name })
 
     } catch (err) {
         console.error(err)
@@ -150,10 +150,10 @@ export function SettingsPage() {
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-zinc-400 mb-1">Identificador (Slug)</label>
+                            <label className="block text-sm font-medium text-zinc-400 mb-1">Industria</label>
                             <div className="flex items-center w-full p-3 bg-zinc-950 border border-zinc-800 rounded text-zinc-500">
                                 <Globe size={16} className="mr-2 opacity-50"/>
-                                <span className="text-xs font-mono">aleris.app/{orgData.slug || '...'}</span>
+                                <span className="text-sm">Configuración de industria</span>
                             </div>
                         </div>
                     </div>

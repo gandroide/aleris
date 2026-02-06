@@ -4,7 +4,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { 
  X, LogOut, 
-  Home, Settings, Tag, Calendar, Wallet, 
+  Home, Settings, Tag, Calendar, CalendarDays, Wallet, 
   Users, UserCog, Building2, CreditCard, MoreHorizontal 
 } from 'lucide-react'
 
@@ -32,6 +32,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       return [
         { icon: Home, label: 'Inicio', path: '/dashboard' },
         { icon: Calendar, label: 'Agenda', path: '/calendar' }, 
+        { icon: CalendarDays, label: 'Clases', path: '/classes' },
         { icon: Wallet, label: 'Caja', path: '/finance' },
         { icon: Users, label: 'Alumnos', path: '/clients' },
         { icon: UserCog, label: 'Profesores', path: '/staff' }, 
@@ -43,6 +44,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     return [
       { icon: Home, label: 'Inicio', path: '/dashboard' },
       { icon: Calendar, label: 'Agenda', path: '/calendar' }, 
+      { icon: CalendarDays, label: 'Clases', path: '/classes' },
       { icon: Wallet, label: 'Tesorería', path: '/finance' },
       { icon: Users, label: 'Clientes', path: '/clients' },
       { icon: UserCog, label: 'Personal', path: '/staff' },
@@ -124,49 +126,72 @@ export function AppLayout({ children }: AppLayoutProps) {
       </aside>
 
       {/* 📱 SIDEBAR MÓVIL (Drawer / Overlay) */}
-      {/* Solo se muestra cuando pulsas el botón "Menú" en la barra inferior */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
-            {/* Backdrop oscuro */}
+            {/* Backdrop oscuro con animación */}
             <div 
-                className="fixed inset-0 bg-black/80 backdrop-blur-sm transition-opacity" 
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
                 onClick={() => setSidebarOpen(false)}
             />
             
-            {/* Panel lateral */}
+            {/* Panel lateral mejorado */}
             <aside className="fixed inset-y-0 right-0 w-72 bg-zinc-900 shadow-2xl border-l border-zinc-800 flex flex-col animate-in slide-in-from-right duration-300">
-                <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-                    <h2 className="text-lg font-bold text-white">Menú Completo</h2>
-                    <button onClick={() => setSidebarOpen(false)} className="p-2 text-zinc-400 hover:text-white bg-zinc-800 rounded-full">
+                <div className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/95 backdrop-blur-sm">
+                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                        <span className="bg-indigo-600 h-7 w-7 rounded flex items-center justify-center text-xs">AO</span>
+                        Menú
+                    </h2>
+                    <button 
+                        onClick={() => setSidebarOpen(false)} 
+                        className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-all active:scale-95"
+                    >
                         <X size={20} />
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-                    {menuItems.map((item) => {
+                <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1 scrollbar-custom">
+                    {menuItems.map((item, index) => {
                         const Icon = item.icon
+                        const active = isActive(item.path)
                         return (
                             <Link
                                 key={item.path}
                                 to={item.path}
                                 onClick={() => setSidebarOpen(false)}
-                                className={`flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                                    isActive(item.path) 
-                                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20' 
-                                    : 'text-zinc-300 hover:bg-zinc-800'
+                                className={`flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                                    active
+                                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/30' 
+                                    : 'text-zinc-300 hover:bg-zinc-800/80 active:bg-zinc-800'
                                 }`}
+                                style={{
+                                    animation: `slideInFromRight 0.3s ease-out ${index * 0.05}s both`
+                                }}
                             >
-                                <Icon className="mr-3 h-5 w-5" />
+                                <Icon className={`mr-3 h-5 w-5 ${active ? 'text-white' : 'text-zinc-400'}`} />
                                 {item.label}
                             </Link>
                         )
                     })}
                 </div>
 
-                <div className="p-4 border-t border-zinc-800 bg-zinc-950">
+                {/* Footer con perfil y logout */}
+                <div className="p-4 border-t border-zinc-800 bg-zinc-950 space-y-3">
+                    <div className="flex items-center gap-3 px-2">
+                        <div className="h-10 w-10 rounded-full bg-indigo-900/50 flex items-center justify-center text-indigo-300 font-bold border border-indigo-500/20">
+                            {profile?.full_name?.[0] || 'U'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-white truncate">
+                                {profile?.full_name || 'Usuario'}
+                            </p>
+                            <p className="text-xs text-zinc-500 truncate">
+                                {formatRole(profile?.role)}
+                            </p>
+                        </div>
+                    </div>
                     <button 
                         onClick={signOut}
-                        className="w-full flex items-center justify-center gap-2 py-3 bg-red-500/10 text-red-400 rounded-lg font-medium hover:bg-red-500/20 transition-colors"
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-red-500/10 text-red-400 rounded-lg font-medium hover:bg-red-500/20 transition-all active:scale-95 border border-red-500/20"
                     >
                         <LogOut size={18} /> Cerrar Sesión
                     </button>

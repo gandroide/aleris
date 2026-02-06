@@ -19,7 +19,7 @@ type Branch = {
   timezone: string
 }
 
-export function OrganizationDetailsPage() {
+export default function OrganizationDetailsPage() {
   const { loading: authLoading } = useAuth() // 🟢 2. Control de carga de sesión
   const { id } = useParams() 
   const navigate = useNavigate()

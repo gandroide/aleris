@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -43,7 +43,7 @@ type WorkDay = {
 }
 const DAYS_OF_WEEK = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
-export function StaffPage() {
+export default function StaffPage() {
   const { profile, loading: authLoading } = useAuth()
   const { toasts, showToast, removeToast } = useToast()
   const navigate = useNavigate()
@@ -61,11 +61,21 @@ export function StaffPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'branches' | 'schedule' | 'classes' | 'students' | 'reviews'>('profile')
   const [detailsLoading, setDetailsLoading] = useState(false)
   
-  // ESTADOS DRAWER CREAR (INVITACIÓN)
+  // ESTADOS DRAWER CREAR (INVITACIÓN O PROFESOR EXTERNO)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [creationType, setCreationType] = useState<'invitation' | 'external'>('external') // Por defecto externo
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('staff')
   const [isInviting, setIsInviting] = useState(false)
+  
+  // Datos para profesor externo
+  const [externalData, setExternalData] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    specialty: '',
+    email: '' // opcional para externos
+  })
 
   // ESTADOS DATOS DETALLE
   const [assignedBranches, setAssignedBranches] = useState<Branch[]>([])
@@ -135,49 +145,74 @@ export function StaffPage() {
 
     try {
         const columnToSearch = member.type === 'system' ? 'profile_id' : 'professional_id'
-        
-        const { data: branchesData } = await supabase
-            .from('branch_staff')
-            .select('branch:branches(id, name)')
-            .eq(columnToSearch, member.id) 
-        
-        const branches = branchesData?.map((b: any) => b.branch) || []
-        setAssignedBranches(branches)
-
-        if(member.type === 'system') {
-            const { data: revData } = await supabase
-                .from('teacher_reviews')
-                .select('*')
-                .eq('teacher_id', member.id)
-                .order('created_at', { ascending: false })
-            setReviews(revData || [])
-        } else {
-            setReviews([])
-        }
-
         const apptColumn = member.type === 'system' ? 'profile_id' : 'professional_id'
         
-        const { data: classData } = await supabase
-            .from('appointments')
-            .select('id, start_time, service:services(name)')
-            .eq(apptColumn, member.id)
-            .gte('start_time', new Date().toISOString())
-            .order('start_time', { ascending: true })
-            .limit(5)
-        setUpcomingClasses(classData as any || [])
+        // ✅ OPTIMIZACIÓN: Paralelizar todas las queries independientes
+        const queries = [
+            supabase
+                .from('branch_staff')
+                .select('branch:branches!fk_branch_staff_branch(id, name)')
+                .eq(columnToSearch, member.id),
+            
+            supabase
+                .from('appointments')
+                .select('id, start_time, service:services!fk_appointments_service(name)')
+                .eq(apptColumn, member.id)
+                .gte('start_time', new Date().toISOString())
+                .order('start_time', { ascending: true })
+                .limit(5),
+            
+            supabase
+                .from('appointments')
+                .select('student:students!fk_appointments_student(id, first_name, last_name)')
+                .eq(apptColumn, member.id)
+                .not('student_id', 'is', null)
+                .limit(50)
+        ]
 
-        const { data: studData } = await supabase
-            .from('appointments')
-            .select('student:students(id, first_name, last_name)')
-            .eq(apptColumn, member.id)
-            .not('student_id', 'is', null)
-            .limit(50)
+        // Solo agregar reviews si es staff del sistema
+        if (member.type === 'system') {
+            queries.push(
+                supabase
+                    .from('teacher_reviews')
+                    .select('*')
+                    .eq('teacher_id', member.id)
+                    .order('created_at', { ascending: false })
+            )
+        }
+
+        const results = await Promise.all(queries)
         
+        // Procesar resultados según el índice
+        let resultIndex = 0
+        
+        // Branches (siempre es el primero)
+        const branchesData = results[resultIndex].data
+        const branches = branchesData?.map((b: any) => b.branch) || []
+        setAssignedBranches(branches)
+        resultIndex++
+
+        // Classes (siempre es el segundo)
+        const classData = results[resultIndex].data
+        setUpcomingClasses(classData as any || [])
+        resultIndex++
+
+        // Students (siempre es el tercero)
+        const studData = results[resultIndex].data
         const uniqueStudentsMap = new Map()
         studData?.forEach((item: any) => {
             if(item.student) uniqueStudentsMap.set(item.student.id, item.student)
         })
         setMyStudents(Array.from(uniqueStudentsMap.values()))
+        resultIndex++
+
+        // Reviews (solo si es system, será el cuarto)
+        if (member.type === 'system') {
+            const reviewData = results[resultIndex]?.data
+            setReviews((reviewData || []) as unknown as Review[])
+        } else {
+            setReviews([])
+        }
 
     } catch (err) {
         console.error(err)
@@ -318,35 +353,64 @@ export function StaffPage() {
     } catch (err) { showToast('Error', 'error') }
   }
 
-  // 🟢 CAMBIO PRINCIPAL: INVITAR EN VEZ DE CREAR FANTASMA
-  const handleInvite = async (e: React.FormEvent) => {
+  // 🟢 CREAR MIEMBRO: Invitación o Profesor Externo
+  const handleCreateMember = async (e: React.FormEvent) => {
       e.preventDefault()
       if (!orgId) return
       
       setIsInviting(true)
       try {
-          // 1. Guardar en la tabla de invitaciones
-          const { error } = await supabase.from('organization_invitations').insert({
-              email: inviteEmail.trim().toLowerCase(),
-              organization_id: orgId,
-              role: inviteRole,
-              status: 'pending'
-          })
+          if (creationType === 'invitation') {
+              // OPCIÓN 1: Invitar staff para que use la app
+              const { error } = await supabase.from('organization_invitations').insert({
+                  email: inviteEmail.trim().toLowerCase(),
+                  organization_id: orgId,
+                  role: inviteRole,
+                  status: 'pending'
+              })
 
-          if (error) throw error
+              if (error) throw error
+              showToast('Invitación enviada exitosamente', 'success')
+              setInviteEmail('')
+              
+          } else {
+              // OPCIÓN 2: Crear profesor externo (no usa la app)
+              if (!externalData.firstName || !externalData.lastName) {
+                  showToast('Nombre y apellido son obligatorios', 'error')
+                  return
+              }
 
-          showToast('Invitación registrada exitosamente.', 'success')
+              const { error } = await supabase.from('professionals').insert({
+                  organization_id: orgId,
+                  full_name: `${externalData.firstName} ${externalData.lastName}`,
+                  email: externalData.email || null,
+                  phone: externalData.phone || null,
+                  specialty: externalData.specialty || null,
+                  base_salary: 0,
+                  commission_percentage: 0
+              })
+
+              if (error) throw error
+              showToast('Profesor externo agregado exitosamente', 'success')
+              setExternalData({ firstName: '', lastName: '', phone: '', specialty: '', email: '' })
+          }
+
           setIsCreateOpen(false)
-          setInviteEmail('')
+          loadStaff() // Recargar lista
+          
       } catch (err: any) {
           console.error(err)
-          showToast(err.message || 'Error al crear invitación', 'error')
+          showToast(err.message || 'Error al crear miembro', 'error')
       } finally {
           setIsInviting(false)
       }
   }
 
-  const filteredStaff = staff.filter(s => s.full_name.toLowerCase().includes(searchTerm.toLowerCase()))
+  // ✅ OPTIMIZACIÓN: Memoizar filtrado
+  const filteredStaff = useMemo(
+    () => staff.filter(s => s.full_name.toLowerCase().includes(searchTerm.toLowerCase())),
+    [staff, searchTerm]
+  )
 
   return (
     <>
@@ -370,34 +434,81 @@ export function StaffPage() {
         </div>
 
         {loading ? (
-             <div className="flex justify-center h-40 items-center"><Loader2 className="animate-spin text-zinc-500"/></div>
+             <div className="flex justify-center h-40 items-center animate-in fade-in duration-300">
+                <Loader2 className="animate-spin text-indigo-500" size={40}/>
+                <span className="ml-3 text-zinc-400">Cargando equipo...</span>
+             </div>
         ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredStaff.map(member => (
-                    <div key={member.id} onClick={() => handleStaffClick(member)}
-                         className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-indigo-500/50 cursor-pointer transition-all group relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-3">
-                            {member.role === 'owner' ? <Shield size={16} className="text-indigo-500"/> : <User size={16} className="text-zinc-600"/>}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filteredStaff.map((member, index) => (
+                    <div 
+                        key={member.id} 
+                        onClick={() => handleStaffClick(member)}
+                        className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-2xl p-6 hover:border-indigo-500/40 cursor-pointer transition-all duration-300 group relative overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 card-hover animate-in slide-in-from-bottom duration-500"
+                        style={{ animationDelay: `${index * 0.05}s` }}
+                    >
+                        {/* Background gradient effect */}
+                        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                        
+                        {/* Role Badge */}
+                        <div className="absolute top-4 right-4">
+                            {member.role === 'owner' ? (
+                                <div className="p-2 bg-indigo-500/10 rounded-lg ring-2 ring-indigo-500/20">
+                                    <Shield size={16} className="text-indigo-400"/>
+                                </div>
+                            ) : (
+                                <div className="p-2 bg-zinc-800/50 rounded-lg">
+                                    <User size={16} className="text-zinc-600"/>
+                                </div>
+                            )}
                         </div>
-                        <div className="flex items-center gap-4 mb-4">
-                            <div className="h-12 w-12 rounded-full bg-indigo-900/20 text-indigo-400 flex items-center justify-center font-bold text-xl border border-indigo-500/20">
-                                {member.full_name[0]}
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-white group-hover:text-indigo-400 transition-colors">{member.full_name}</h3>
-                                <div className="flex gap-2">
-                                    <p className="text-xs text-zinc-500 uppercase">{member.specialty || 'Staff'}</p>
-                                    {member.type === 'professional' && <span className="text-[10px] bg-zinc-800 px-1 rounded text-zinc-400 border border-zinc-700">EXT</span>}
+                        
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-4 mb-5">
+                                <div className="relative">
+                                    <div className="h-14 w-14 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-300 flex items-center justify-center font-bold text-xl border-2 border-indigo-500/30 group-hover:border-indigo-500/60 transition-colors shadow-lg">
+                                        {member.full_name[0]}
+                                    </div>
+                                    {/* Rating indicator */}
+                                    <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-amber-500 flex items-center justify-center border-2 border-zinc-900 shadow-lg">
+                                        <Star size={12} fill="currentColor" className="text-zinc-900"/>
+                                    </div>
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className="font-bold text-white group-hover:text-indigo-400 transition-colors text-lg">
+                                        {member.full_name}
+                                    </h3>
+                                    <div className="flex gap-2 items-center mt-1">
+                                        <p className="text-xs text-zinc-500 uppercase font-semibold">{member.specialty || 'Staff'}</p>
+                                        {member.type === 'professional' && (
+                                            <span className="text-[10px] bg-purple-500/10 px-2 py-0.5 rounded-lg text-purple-400 border border-purple-500/20 font-bold uppercase">
+                                                EXT
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        <div className="flex justify-between items-center pt-4 border-t border-zinc-800">
-                             <div className="flex items-center gap-1 text-amber-500 text-xs font-bold">
-                                <Star size={12} fill="currentColor"/> {Number(member.avg_rating).toFixed(1)}
-                             </div>
-                             <div className="flex items-center gap-1 text-zinc-500 text-xs">
-                                <Building2 size={12}/> {member.branch_count} sucursales
-                             </div>
+                            
+                            {/* Stats Section */}
+                            <div className="flex items-center justify-between pt-4 border-t border-zinc-800 gap-3">
+                                <div className="flex items-center gap-2 bg-amber-500/10 px-3 py-2 rounded-lg border border-amber-500/20 backdrop-blur-sm">
+                                    <Star size={14} fill="currentColor" className="text-amber-500"/>
+                                    <span className="text-sm text-amber-400 font-bold">
+                                        {Number(member.avg_rating).toFixed(1)}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-zinc-800/50 px-3 py-2 rounded-lg border border-zinc-700/50 backdrop-blur-sm">
+                                    <Building2 size={14} className="text-zinc-500"/>
+                                    <span className="text-sm text-zinc-400 font-semibold">
+                                        {member.branch_count} {member.branch_count === 1 ? 'sede' : 'sedes'}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            {/* Hover action hint */}
+                            <div className="mt-3 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <p className="text-xs text-indigo-400 font-semibold">Ver ficha completa →</p>
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -629,43 +740,168 @@ export function StaffPage() {
         </Drawer>
       )}
 
-      {/* 🟢 NUEVO DRAWER DE INVITACIÓN */}
-      <Drawer isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="Invitar al Equipo">
-          <form onSubmit={handleInvite} className="space-y-4">
+      {/* 🟢 DRAWER: AGREGAR MIEMBRO */}
+      <Drawer isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="Agregar al Equipo">
+          <form onSubmit={handleCreateMember} className="space-y-4">
              <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded">
-                <p className="text-zinc-400 text-sm mb-4">
-                    Registra el correo del nuevo miembro. Cuando esa persona se cree una cuenta en la app, 
-                    será asignada automáticamente a tu organización.
-                </p>
                 
-                <div className="space-y-3">
-                    <div>
-                        <label className="block text-xs font-bold text-zinc-500 mb-1 flex items-center gap-1"><Mail size={12}/> Correo Electrónico</label>
-                        <input 
-                            type="email" 
-                            placeholder="correo@empleado.com" 
-                            required 
-                            value={inviteEmail}
-                            onChange={e => setInviteEmail(e.target.value)}
-                            className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none" 
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-bold text-zinc-500 mb-1 flex items-center gap-1"><Shield size={12}/> Rol</label>
-                        <select 
-                            value={inviteRole}
-                            onChange={e => setInviteRole(e.target.value)}
-                            className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none"
+                {/* SELECTOR DE TIPO */}
+                <div className="mb-6 bg-zinc-950 p-3 rounded-lg border border-zinc-700">
+                    <label className="block text-xs font-bold text-zinc-400 mb-3 uppercase">Tipo de Miembro</label>
+                    <div className="grid grid-cols-2 gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setCreationType('external')}
+                            className={`p-4 rounded-lg border-2 transition-all text-left ${
+                                creationType === 'external' 
+                                    ? 'border-indigo-500 bg-indigo-500/10' 
+                                    : 'border-zinc-700 bg-zinc-900 hover:border-zinc-600'
+                            }`}
                         >
-                            <option value="staff">Staff Administrativo</option>
-                            <option value="teacher">Profesor / Instructor</option>
-                        </select>
+                            <div className="flex items-center gap-2 mb-2">
+                                <User size={16} className={creationType === 'external' ? 'text-indigo-400' : 'text-zinc-500'}/>
+                                <span className={`text-sm font-bold ${creationType === 'external' ? 'text-white' : 'text-zinc-400'}`}>
+                                    Profesor Externo
+                                </span>
+                            </div>
+                            <p className="text-[10px] text-zinc-500">No usa la app, solo necesitas su nombre</p>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setCreationType('invitation')}
+                            className={`p-4 rounded-lg border-2 transition-all text-left ${
+                                creationType === 'invitation' 
+                                    ? 'border-emerald-500 bg-emerald-500/10' 
+                                    : 'border-zinc-700 bg-zinc-900 hover:border-zinc-600'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2 mb-2">
+                                <Mail size={16} className={creationType === 'invitation' ? 'text-emerald-400' : 'text-zinc-500'}/>
+                                <span className={`text-sm font-bold ${creationType === 'invitation' ? 'text-white' : 'text-zinc-400'}`}>
+                                    Staff con Acceso
+                                </span>
+                            </div>
+                            <p className="text-[10px] text-zinc-500">Usará la app, requiere invitación</p>
+                        </button>
                     </div>
                 </div>
 
-                <button type="submit" disabled={isInviting} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded mt-4 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                    {isInviting ? <Loader2 className="animate-spin" size={18}/> : 'Registrar Invitación'}
+                {/* FORMULARIO SEGÚN TIPO */}
+                {creationType === 'external' ? (
+                    // FORMULARIO PROFESOR EXTERNO
+                    <div className="space-y-3">
+                        <p className="text-zinc-400 text-sm mb-4 bg-zinc-900 p-3 rounded border border-zinc-800">
+                            💡 Este profesor <strong>no tendrá acceso</strong> a la aplicación. Solo podrás asignarlo a clases desde tu cuenta.
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-500 mb-1">Nombre *</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Juan" 
+                                    required 
+                                    value={externalData.firstName}
+                                    onChange={e => setExternalData({...externalData, firstName: e.target.value})}
+                                    className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none" 
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-500 mb-1">Apellido *</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Pérez" 
+                                    required 
+                                    value={externalData.lastName}
+                                    onChange={e => setExternalData({...externalData, lastName: e.target.value})}
+                                    className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none" 
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-zinc-500 mb-1">Especialidad</label>
+                            <input 
+                                type="text" 
+                                placeholder="Ej: Salsa, Yoga, Inglés..." 
+                                value={externalData.specialty}
+                                onChange={e => setExternalData({...externalData, specialty: e.target.value})}
+                                className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none" 
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-zinc-500 mb-1">Teléfono (opcional)</label>
+                            <input 
+                                type="tel" 
+                                placeholder="+57 300 123 4567" 
+                                value={externalData.phone}
+                                onChange={e => setExternalData({...externalData, phone: e.target.value})}
+                                className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none" 
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-zinc-500 mb-1">Email (opcional)</label>
+                            <input 
+                                type="email" 
+                                placeholder="profesor@ejemplo.com" 
+                                value={externalData.email}
+                                onChange={e => setExternalData({...externalData, email: e.target.value})}
+                                className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none" 
+                            />
+                            <p className="text-[10px] text-zinc-600 mt-1">Solo para contacto, no se enviará invitación</p>
+                        </div>
+                    </div>
+                ) : (
+                    // FORMULARIO INVITACIÓN (STAFF CON ACCESO)
+                    <div className="space-y-3">
+                        <p className="text-zinc-400 text-sm mb-4 bg-zinc-900 p-3 rounded border border-zinc-800">
+                            📧 Se enviará una invitación a este correo. La persona podrá registrarse y acceder a la app.
+                        </p>
+
+                        <div>
+                            <label className="block text-xs font-bold text-zinc-500 mb-1 flex items-center gap-1">
+                                <Mail size={12}/> Correo Electrónico *
+                            </label>
+                            <input 
+                                type="email" 
+                                placeholder="correo@empleado.com" 
+                                required 
+                                value={inviteEmail}
+                                onChange={e => setInviteEmail(e.target.value)}
+                                className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none" 
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-zinc-500 mb-1 flex items-center gap-1">
+                                <Shield size={12}/> Rol en la App
+                            </label>
+                            <select 
+                                value={inviteRole}
+                                onChange={e => setInviteRole(e.target.value)}
+                                className="w-full bg-black border border-zinc-700 rounded p-3 text-white focus:border-indigo-500 outline-none"
+                            >
+                                <option value="staff">Staff Administrativo</option>
+                                <option value="teacher">Profesor con Acceso</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+
+                {/* BOTÓN DE SUBMIT */}
+                <button 
+                    type="submit" 
+                    disabled={isInviting} 
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded mt-6 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                    {isInviting ? (
+                        <><Loader2 className="animate-spin" size={18}/> Procesando...</>
+                    ) : (
+                        creationType === 'external' ? '✓ Agregar Profesor' : '📧 Enviar Invitación'
+                    )}
                 </button>
              </div>
           </form>

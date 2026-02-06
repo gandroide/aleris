@@ -5,8 +5,9 @@ import { es } from 'date-fns/locale'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { 
-  Calendar as CalendarIcon, Clock, Plus, User, Star, 
-  CheckCircle2, AlertTriangle, Loader2, BookOpen, Trash2, Edit, RefreshCw
+  Calendar as CalendarIcon, Clock, Plus, User, Star, CreditCard,
+  CheckCircle2, AlertTriangle, Loader2, BookOpen, Trash2, Edit, RefreshCw,
+  Banknote, Landmark, DollarSign
 } from 'lucide-react'
 import { Drawer } from '../components/Drawer'
 import { useToast } from '../hooks/useToast'
@@ -18,6 +19,11 @@ interface Student { id: string; first_name: string; last_name: string }
 interface Profile { id: string; full_name: string; type?: string; specific_branch_id?: string }
 interface Service { id: string; name: string; price: number }
 
+interface ActiveMembership {
+  id: string
+  plan: { name: string; service_id: string | null }
+}
+
 interface Appointment {
   id: string
   start_time: string
@@ -28,13 +34,13 @@ interface Appointment {
   professional_id?: string | null
   students?: { first_name: string; last_name: string }
   profiles?: { full_name: string } 
-  professionals?: { first_name: string; last_name: string } 
+  professionals?: { full_name: string } 
   services?: { name: string }
 }
 
 interface ExtendedProfile { organization_id?: string; assigned_branch_id?: string }
 
-export function CalendarPage() {
+export default function CalendarPage() {
   const { profile, loading: authLoading } = useAuth()
   const { toasts, showToast, removeToast } = useToast()
   
@@ -58,12 +64,17 @@ export function CalendarPage() {
   const [teachers, setTeachers] = useState<Profile[]>([])
   const [services, setServices] = useState<Service[]>([])
   
+  // MEMBRESÍAS DEL ALUMNO SELECCIONADO
+  const [studentMemberships, setStudentMemberships] = useState<ActiveMembership[]>([])
+  const [checkingMembership, setCheckingMembership] = useState(false)
+  
   const initialFormState = {
     student_id: '',
     generic_teacher_id: '', 
     service_id: '',
     start_time: '09:00',
-    is_private: false
+    is_private: false,
+    payment_method: 'transfer' as 'cash' | 'card' | 'transfer'
   }
   const [formData, setFormData] = useState(initialFormState)
 
@@ -81,10 +92,10 @@ export function CalendarPage() {
         .select(`
           id, start_time, is_private_class, 
           student_id, profile_id, professional_id, service_id, 
-          students (first_name, last_name),
-          profiles (full_name),
-          professionals (first_name, last_name),
-          services (name)
+          students!fk_appointments_student (first_name, last_name),
+          profiles!fk_appointments_profile (full_name),
+          professionals!fk_appointments_professional (full_name),
+          services!fk_appointments_service (name)
         `)
         .eq('organization_id', orgId)
         .gte('start_time', `${dateStr}T00:00:00`)
@@ -139,6 +150,30 @@ export function CalendarPage() {
     loadFormData()
   }, [isDrawerOpen, orgId, branchId]) // Dependencias estables
 
+  // --- 2B. VERIFICAR MEMBRESÍAS DEL ALUMNO ---
+  const checkStudentMemberships = async (studentId: string) => {
+    if (!studentId) {
+      setStudentMemberships([])
+      return
+    }
+    setCheckingMembership(true)
+    try {
+      const { data } = await supabase
+        .from('memberships')
+        .select('id, plan:plans!fk_memberships_plan(name, service_id)')
+        .eq('student_id', studentId)
+        .eq('status', 'active')
+        .gte('end_date', new Date().toISOString())
+
+      setStudentMemberships((data as any) || [])
+    } catch (e) {
+      console.error('Error verificando membresías:', e)
+      setStudentMemberships([])
+    } finally {
+      setCheckingMembership(false)
+    }
+  }
+
   // --- 3. VALIDACIÓN DE HORARIOS ---
   const checkPrivateStatus = async (teacherId: string, time: string) => {
     if (!teacherId || !time || !branchId) return
@@ -188,12 +223,14 @@ export function CalendarPage() {
       is_private: apt.is_private_class
     })
     
+    checkStudentMemberships(apt.student_id)
     setIsDrawerOpen(true)
   }
 
   const handleNewClick = () => {
     setEditingId(null)
     setFormData(initialFormState)
+    setStudentMemberships([])
     setIsDrawerOpen(true)
   }
 
@@ -206,9 +243,17 @@ export function CalendarPage() {
       const dateStr = format(selectedDay, 'yyyy-MM-dd')
       const startIso = `${dateStr}T${formData.start_time}:00`
       const service = services.find(s => s.id === formData.service_id)
+      const student = students.find(s => s.id === formData.student_id)
 
       const selectedTeacher = teachers.find(t => t.id === formData.generic_teacher_id)
       const isSystemUser = selectedTeacher?.type === 'system'
+
+      // Determinar precio: si tiene membresía activa que cubre ESTE servicio → $0
+      const matchingMembership = studentMemberships.find(
+        m => m.plan?.service_id === formData.service_id
+      )
+      const coveredByMembership = !!matchingMembership
+      const finalPrice = coveredByMembership ? 0 : (service ? service.price : 0)
 
       const payload = {
         organization_id: orgId,
@@ -217,7 +262,7 @@ export function CalendarPage() {
         service_id: formData.service_id,
         start_time: startIso,
         end_time: startIso,
-        price_at_booking: service ? service.price : 0,
+        price_at_booking: finalPrice,
         is_private_class: formData.is_private,
         status: 'scheduled',
         
@@ -232,7 +277,33 @@ export function CalendarPage() {
       } else {
         const { error } = await supabase.from('appointments').insert(payload)
         if (error) throw error
-        showToast('Cita agendada correctamente', 'success')
+
+        // 💰 Registrar pago automático si la clase NO está cubierta por membresía
+        if (!coveredByMembership && finalPrice > 0) {
+          const studentName = student ? `${student.first_name} ${student.last_name}` : 'Alumno'
+          const { error: txError } = await supabase.from('transactions').insert({
+            organization_id: orgId,
+            branch_id: branchId,
+            student_id: formData.student_id,
+            amount: finalPrice,
+            payment_method: formData.payment_method,
+            concept: `Clase: ${service?.name || 'Servicio'} — ${studentName}`
+          })
+          if (txError) {
+            console.error('Error registrando pago:', txError)
+            // No lanzamos error aquí, la cita ya se creó
+            showToast('Cita agendada, pero hubo un error registrando el pago', 'warning')
+          } else {
+            showToast(`Cita agendada y cobro de $${finalPrice} registrado`, 'success')
+          }
+        } else {
+          showToast(
+            coveredByMembership 
+              ? `Cita agendada — cubierta por membresía "${matchingMembership?.plan?.name}"` 
+              : 'Cita agendada correctamente', 
+            'success'
+          )
+        }
       }
 
       setIsDrawerOpen(false)
@@ -267,52 +338,64 @@ export function CalendarPage() {
   // --- RENDER ---
   let content
   if (loadingData) {
-    content = <div className="py-20 flex flex-col items-center justify-center text-zinc-500 animate-pulse"><Loader2 className="h-8 w-8 animate-spin mb-2 text-indigo-500"/><p>Sincronizando agenda...</p></div>
+    content = (
+      <div className="py-20 flex flex-col items-center justify-center text-zinc-500 animate-in fade-in duration-300">
+        <Loader2 className="h-10 w-10 animate-spin mb-3 text-indigo-500"/>
+        <p className="font-medium">Sincronizando agenda...</p>
+      </div>
+    )
   } else if (appointments.length === 0) {
     content = (
-      <div className="bg-zinc-900/30 border border-zinc-800 border-dashed rounded-xl py-20 text-center text-zinc-500 flex flex-col items-center">
-        <Clock className="h-10 w-10 mb-2 opacity-50"/>
-        <p className="italic">No hay clases programadas para hoy.</p>
+      <div className="bg-gradient-to-br from-zinc-900/50 to-zinc-950/50 border border-zinc-800 border-dashed rounded-2xl py-20 text-center backdrop-blur-sm animate-in fade-in duration-300">
+        <Clock className="h-16 w-16 mb-4 opacity-30 text-zinc-600 mx-auto"/>
+        <p className="text-zinc-500 font-medium mb-2">Sin clases programadas</p>
+        <p className="text-zinc-600 text-sm">Agenda una nueva cita para este día</p>
       </div>
     )
   } else {
     content = (
-      <div className="grid gap-3">
-        {appointments.map((apt) => {
-            const teacherName = apt.profiles?.full_name || 
-                                (apt.professionals ? `${apt.professionals.first_name} ${apt.professionals.last_name || ''}` : 'Sin Asignar')
+      <div className="space-y-3">
+        {appointments.map((apt, index) => {
+            const teacherName = apt.profiles?.full_name || apt.professionals?.full_name || 'Sin Asignar'
 
             return (
               <div 
                 key={apt.id} 
                 onClick={() => handleEditClick(apt)}
-                className="bg-zinc-900 border border-zinc-800 p-4 rounded-lg flex items-center justify-between hover:border-indigo-500/50 hover:bg-zinc-800/80 transition-all group cursor-pointer shadow-sm hover:shadow-md"
+                className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 p-5 rounded-xl flex items-center justify-between hover:border-indigo-500/40 hover:bg-zinc-800/80 hover:shadow-lg hover:shadow-indigo-500/10 transition-all duration-300 group cursor-pointer animate-in slide-in-from-bottom duration-500"
+                style={{ animationDelay: `${index * 0.05}s` }}
               >
-                <div className="flex items-center gap-4">
-                  <div className="bg-zinc-950 px-3 py-2 rounded border border-zinc-800 text-indigo-400 font-mono font-bold text-sm group-hover:text-indigo-300 transition-colors">
+                <div className="flex items-center gap-4 flex-1">
+                  <div className="bg-gradient-to-br from-indigo-500/20 to-purple-500/20 px-4 py-3 rounded-xl border border-indigo-500/30 text-indigo-300 font-mono font-bold text-base group-hover:border-indigo-500/50 transition-colors shadow-lg">
                     {format(new Date(apt.start_time), 'HH:mm')}
                   </div>
-                  <div>
-                    <h4 className="text-white font-bold text-base group-hover:text-indigo-100 transition-colors">
+                  <div className="flex-1">
+                    <h4 className="text-white font-bold text-base group-hover:text-indigo-300 transition-colors mb-1">
                       {apt.students?.first_name} {apt.students?.last_name}
                     </h4>
-                    <p className="text-xs text-zinc-400 flex items-center gap-2 mt-1">
-                      <User size={12}/> {teacherName} <span className="text-zinc-600">|</span> <BookOpen size={12}/> {apt.services?.name}
-                    </p>
+                    <div className="flex items-center gap-3 text-xs text-zinc-400">
+                      <span className="flex items-center gap-1.5">
+                        <User size={12}/> {teacherName}
+                      </span>
+                      <span className="text-zinc-700">•</span>
+                      <span className="flex items-center gap-1.5">
+                        <BookOpen size={12}/> {apt.services?.name}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 
-                <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-3">
                   {apt.is_private_class ? (
-                    <div className="flex items-center gap-1 bg-amber-500/10 text-amber-500 border border-amber-500/20 px-3 py-1 rounded text-[10px] font-black uppercase tracking-wider">
-                      <Star size={10} fill="currentColor" /> Privada
+                    <div className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider backdrop-blur-sm">
+                      <Star size={12} fill="currentColor" /> Privada
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1 bg-emerald-500/5 text-emerald-600 border border-emerald-500/10 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider">
-                      Regular
+                    <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm">
+                      <CheckCircle2 size={12} /> Regular
                     </div>
                   )}
-                  <Edit size={14} className="text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <Edit size={16} className="text-zinc-600 opacity-0 group-hover:opacity-100 group-hover:text-indigo-400 transition-all" />
                 </div>
               </div>
             )
@@ -322,49 +405,69 @@ export function CalendarPage() {
   }
 
   return (
-    <div className="space-y-6 text-white p-4">
+    <div className="space-y-6 text-white animate-in fade-in duration-500">
       <ToastContainer toasts={toasts} onClose={removeToast} />
       
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold uppercase tracking-tighter text-indigo-400 font-mono italic">
-            ALERIS_CALENDAR
+        <div className="animate-in slide-in-from-bottom duration-500">
+          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+            <div className="p-2 bg-indigo-500/10 rounded-xl ring-2 ring-indigo-500/20">
+              <CalendarIcon size={24} className="text-indigo-400"/>
+            </div>
+            Agenda & Calendario
           </h1>
-          <p className="text-zinc-500 text-xs font-medium">Gestión de Agenda y Clases Privadas</p>
+          <p className="text-zinc-400 text-sm mt-2">Gestión de citas y clases privadas</p>
         </div>
         <button 
           onClick={handleNewClick} 
-          className="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded-lg font-bold flex items-center gap-2 transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
+          className="btn btn-primary shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 animate-in slide-in-from-bottom duration-500"
+          style={{ animationDelay: '0.1s' }}
         >
-          <Plus size={18} /> Nueva Cita
+          <Plus size={20} /> 
+          <span>Nueva Cita</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-4 bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex justify-center h-fit shadow-xl">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Calendar Picker */}
+        <div 
+          className="lg:col-span-4 bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 p-6 rounded-2xl flex justify-center h-fit shadow-2xl backdrop-blur-sm animate-in slide-in-from-bottom duration-500"
+          style={{ animationDelay: '0.15s' }}
+        >
           <DayPicker
             mode="single"
             selected={selectedDay}
             onSelect={(day) => day && setSelectedDay(day)}
             locale={es}
             modifiers={{ booked: appointments.map(a => new Date(a.start_time)) }}
-            modifiersStyles={{ selected: { backgroundColor: '#4f46e5', color: 'white', fontWeight: 'bold' } }}
+            modifiersStyles={{ 
+              selected: { backgroundColor: '#4f46e5', color: 'white', fontWeight: 'bold', borderRadius: '0.5rem' },
+              booked: { fontWeight: 'bold', textDecoration: 'underline', color: '#a78bfa' }
+            }}
             className="text-zinc-300"
           />
         </div>
 
-        <div className="lg:col-span-8 space-y-4">
-          <div className="flex items-center gap-3 border-b border-zinc-800 pb-4">
-            <CalendarIcon className="text-indigo-500" size={24} />
-            <span className="capitalize font-bold text-lg text-white">
-                {format(selectedDay, "EEEE, d 'de' MMMM", { locale: es })}
-            </span>
+        {/* Appointments List */}
+        <div 
+          className="lg:col-span-8 space-y-5 animate-in slide-in-from-bottom duration-500"
+          style={{ animationDelay: '0.2s' }}
+        >
+          <div className="flex items-center justify-between bg-gradient-to-r from-zinc-900 to-zinc-950 border border-zinc-800 p-4 rounded-xl backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/10 rounded-lg">
+                <CalendarIcon className="text-indigo-400" size={20} />
+              </div>
+              <span className="capitalize font-bold text-lg text-white">
+                  {format(selectedDay, "EEEE, d 'de' MMMM", { locale: es })}
+              </span>
+            </div>
             <button 
                 onClick={loadAppointments} 
-                className="ml-auto text-zinc-600 hover:text-white transition-colors"
-                title="Recargar"
+                className="p-2 text-zinc-600 hover:text-white hover:bg-zinc-800 rounded-lg transition-all active:scale-95"
+                title="Recargar agenda"
             >
-                <RefreshCw size={16}/>
+                <RefreshCw size={18}/>
             </button>
           </div>
           {content}
@@ -384,12 +487,79 @@ export function CalendarPage() {
             <select 
                 required 
                 className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white outline-none focus:border-indigo-500 appearance-none"
-                value={formData.student_id} onChange={(e) => setFormData({ ...formData, student_id: e.target.value })}
+                value={formData.student_id} 
+                onChange={(e) => {
+                    const id = e.target.value
+                    setFormData({ ...formData, student_id: id })
+                    checkStudentMemberships(id)
+                }}
             >
               <option value="">Seleccionar Alumno...</option>
               {students.map(s => <option key={s.id} value={s.id}>{s.first_name} {s.last_name}</option>)}
             </select>
           </div>
+
+          {/* INDICADOR DE MEMBRESÍA - Se muestra cuando hay alumno seleccionado */}
+          {formData.student_id && !checkingMembership && (() => {
+            const matchingMem = studentMemberships.find(m => m.plan?.service_id === formData.service_id)
+            const hasAnyMembership = studentMemberships.length > 0
+            const membershipNames = studentMemberships.map(m => m.plan?.name).filter(Boolean).join(', ')
+
+            if (matchingMem) {
+              // ✅ Tiene membresía que CUBRE este servicio
+              return (
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-center gap-3">
+                  <CheckCircle2 size={18} className="text-emerald-400 flex-shrink-0"/>
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-emerald-400 uppercase">Cubierto por membresía: {matchingMem.plan?.name}</p>
+                    <p className="text-[10px] text-emerald-400/70 mt-0.5">
+                      Esta clase no tiene costo adicional — incluida en su plan activo
+                    </p>
+                  </div>
+                </div>
+              )
+            } else if (hasAnyMembership && formData.service_id) {
+              // ⚠️ Tiene membresía pero NO cubre el servicio seleccionado
+              return (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex items-center gap-3">
+                  <AlertTriangle size={18} className="text-amber-400 flex-shrink-0"/>
+                  <div>
+                    <p className="text-xs font-bold text-amber-400">Membresía no cubre este servicio</p>
+                    <p className="text-[10px] text-amber-400/70 mt-0.5">
+                      Tiene plan activo de: <strong>{membershipNames}</strong> — pero esta clase se cobrará aparte
+                    </p>
+                  </div>
+                </div>
+              )
+            } else if (hasAnyMembership && !formData.service_id) {
+              // ℹ️ Tiene membresía, pero aún no eligió servicio
+              return (
+                <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-3 flex items-center gap-3">
+                  <CreditCard size={18} className="text-indigo-400 flex-shrink-0"/>
+                  <div>
+                    <p className="text-xs font-bold text-indigo-400">Membresías activas: {membershipNames}</p>
+                    <p className="text-[10px] text-indigo-400/70 mt-0.5">Selecciona un servicio para verificar si está cubierto</p>
+                  </div>
+                </div>
+              )
+            } else {
+              // ❌ No tiene membresía
+              return (
+                <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3 flex items-center gap-3">
+                  <AlertTriangle size={16} className="text-zinc-500 flex-shrink-0"/>
+                  <div>
+                    <p className="text-xs font-bold text-zinc-400">Sin membresía activa</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">Se cobrará el precio del servicio seleccionado</p>
+                  </div>
+                </div>
+              )
+            }
+          })()}
+          {formData.student_id && checkingMembership && (
+            <div className="flex items-center gap-2 text-xs text-zinc-500 bg-zinc-900/50 p-3 rounded border border-zinc-800">
+              <Loader2 size={14} className="animate-spin"/> Verificando membresías...
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">Profesor</label>
@@ -459,10 +629,131 @@ export function CalendarPage() {
             </div>
           </div>
 
+          {/* 💰 SECCIÓN DE COBRO — solo al crear (no editar) */}
+          {!editingId && (() => {
+            const selectedService = services.find(s => s.id === formData.service_id)
+            const matchingMem = studentMemberships.find(m => m.plan?.service_id === formData.service_id)
+            const isCovered = !!matchingMem
+            const price = selectedService?.price || 0
+
+            if (!formData.service_id || !formData.student_id) return null
+
+            return (
+              <div className={`rounded-xl border overflow-hidden transition-all duration-300 ${
+                isCovered 
+                  ? 'border-emerald-500/30 bg-emerald-500/5' 
+                  : 'border-zinc-700 bg-zinc-900/80'
+              }`}>
+                {/* Encabezado con precio */}
+                <div className={`px-4 py-3 flex items-center justify-between ${
+                  isCovered ? 'bg-emerald-500/10' : 'bg-zinc-800/50'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <DollarSign size={16} className={isCovered ? 'text-emerald-400' : 'text-zinc-400'}/>
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                      Cobro por esta clase
+                    </span>
+                  </div>
+                  <div className={`text-lg font-mono font-black ${
+                    isCovered ? 'text-emerald-400' : 'text-white'
+                  }`}>
+                    {isCovered ? (
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 size={16}/> GRATIS
+                      </span>
+                    ) : (
+                      `$${price}`
+                    )}
+                  </div>
+                </div>
+
+                {/* Método de pago — solo si se va a cobrar */}
+                {!isCovered && price > 0 && (
+                  <div className="p-4 space-y-3">
+                    <label className="block text-xs font-bold text-zinc-500 uppercase">Método de pago</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({...formData, payment_method: 'transfer'})}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs font-bold transition-all ${
+                          formData.payment_method === 'transfer' 
+                            ? 'bg-purple-500/10 border-purple-500/50 text-purple-400 shadow-lg shadow-purple-500/10' 
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                        }`}
+                      >
+                        <Landmark size={20}/>
+                        Transfer
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({...formData, payment_method: 'cash'})}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs font-bold transition-all ${
+                          formData.payment_method === 'cash' 
+                            ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400 shadow-lg shadow-emerald-500/10' 
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                        }`}
+                      >
+                        <Banknote size={20}/>
+                        Efectivo
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({...formData, payment_method: 'card'})}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs font-bold transition-all ${
+                          formData.payment_method === 'card' 
+                            ? 'bg-blue-500/10 border-blue-500/50 text-blue-400 shadow-lg shadow-blue-500/10' 
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                        }`}
+                      >
+                        <CreditCard size={20}/>
+                        Tarjeta
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-600 text-center">
+                      El pago se registrará automáticamente en Tesorería
+                    </p>
+                  </div>
+                )}
+
+                {/* Nota si está cubierto */}
+                {isCovered && (
+                  <div className="px-4 py-2.5">
+                    <p className="text-[10px] text-emerald-400/60 text-center">
+                      Cubierto por membresía «{matchingMem?.plan?.name}» — no genera cobro
+                    </p>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           <div className="space-y-3 pt-4">
-            <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white font-bold py-4 rounded hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                {isSubmitting ? <><Loader2 className="animate-spin" size={20}/> PROCESANDO...</> : (editingId ? "GUARDAR CAMBIOS" : "CONFIRMAR CITA")}
-            </button>
+            {/* Botón de confirmación dinámico */}
+            {(() => {
+              const selectedService = services.find(s => s.id === formData.service_id)
+              const matchingMem = studentMemberships.find(m => m.plan?.service_id === formData.service_id)
+              const isCovered = !!matchingMem
+              const price = selectedService?.price || 0
+              const showPrice = !editingId && !isCovered && price > 0 && formData.student_id && formData.service_id
+
+              return (
+                <button type="submit" disabled={isSubmitting} className={`w-full text-white font-bold py-4 rounded disabled:opacity-50 flex items-center justify-center gap-2 transition-all ${
+                  showPrice 
+                    ? 'bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20' 
+                    : 'bg-indigo-600 hover:bg-indigo-700'
+                }`}>
+                    {isSubmitting ? (
+                      <><Loader2 className="animate-spin" size={20}/> PROCESANDO...</>
+                    ) : editingId ? (
+                      "GUARDAR CAMBIOS"
+                    ) : showPrice ? (
+                      <><DollarSign size={18}/> CONFIRMAR CITA & COBRAR ${price}</>
+                    ) : (
+                      "CONFIRMAR CITA"
+                    )}
+                </button>
+              )
+            })()}
 
             {editingId && (
                 <button 

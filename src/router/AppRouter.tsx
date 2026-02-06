@@ -1,21 +1,27 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { ProtectedRoute } from '../components/ProtectedRoute'
 import { AppLayout } from '../components/AppLayout'
+import { CenteredLoader } from '../components/LoadingSkeleton'
 
-// Pages
+// ✅ OPTIMIZACIÓN: Lazy loading de todas las páginas
+// Auth Pages (críticas, se cargan inmediatamente)
 import { LoginPage } from '../pages/LoginPage'
 import { SignupPage } from '../pages/SignupPage'
-import { DashboardPage } from '../pages/DashboardPage' // Owner/Staff
-import { AdminDashboard } from '../pages/AdminDashboard' // Super Admin
-import { ClientsPage } from '../pages/ClientsPage'
-import { StaffPage } from '../pages/StaffPage'
-import { SettingsPage } from '../pages/SettingsPage' // 👈 NUEVA PÁGINA
-import { OrganizationsPage } from '../pages/admin/OrganizationsPage'
-import { OrganizationDetailsPage } from '../pages/admin/OrganizationDetailsPage'
-import { ServicesPage } from '../pages/ServicesPage'
-import { CalendarPage } from '../pages/CalendarPage'
-import { FinancePage } from '../pages/FinancePage'
+
+// Pages con lazy loading
+const DashboardPage = lazy(() => import('../pages/DashboardPage'))
+const AdminDashboard = lazy(() => import('../pages/AdminDashboard'))
+const ClientsPage = lazy(() => import('../pages/ClientsPage'))
+const StaffPage = lazy(() => import('../pages/StaffPage'))
+const SettingsPage = lazy(() => import('../pages/SettingsPage'))
+const OrganizationsPage = lazy(() => import('../pages/admin/OrganizationsPage'))
+const OrganizationDetailsPage = lazy(() => import('../pages/admin/OrganizationDetailsPage'))
+const ServicesPage = lazy(() => import('../pages/ServicesPage'))
+const CalendarPage = lazy(() => import('../pages/CalendarPage'))
+const FinancePage = lazy(() => import('../pages/FinancePage'))
+const ClassesPage = lazy(() => import('../pages/ClassesPage'))
 
 function AppRoutes() {
   const { user, profile, loading } = useAuth()
@@ -53,8 +59,10 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <AppLayout>
-              {/* Outlet renderiza el componente hijo correspondiente a la ruta */}
-              <Outlet /> 
+              {/* ✅ Suspense para lazy loading */}
+              <Suspense fallback={<CenteredLoader message="Cargando página..." />}>
+                <Outlet /> 
+              </Suspense>
             </AppLayout>
           </ProtectedRoute>
         }
@@ -70,6 +78,7 @@ function AppRoutes() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/services" element={<ServicesPage />}/>
         <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/classes" element={<ClassesPage />} />
         <Route path="/finance" element={<FinancePage />} />
         
         {/* 3. RUTAS OPERATIVAS (Owner & Staff) */}

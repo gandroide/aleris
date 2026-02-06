@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { Building2, Search, ArrowRight, Loader2, Calendar, Globe } from 'lucide-react'
 import type { Organization } from '../../lib/supabase'
 
-export function OrganizationsPage() {
+export default function OrganizationsPage() {
   const { loading: authLoading } = useAuth() // 🟢 1. Importamos estado de auth
   const navigate = useNavigate()
   

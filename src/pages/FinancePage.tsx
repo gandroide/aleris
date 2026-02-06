@@ -41,9 +41,11 @@ interface Plan {
   name: string
   price: number
   duration_days: number
+  service_id?: string | null
+  service?: { name: string } | null
 }
 
-export function FinancePage() {
+export default function FinancePage() {
   const { profile } = useAuth()
   const { toasts, showToast, removeToast } = useToast()
   
@@ -92,7 +94,7 @@ export function FinancePage() {
       // 1. TRANSACCIONES (Ingresos)
       const { data: txs, error: txError } = await supabase
         .from('transactions')
-        .select('*, students(first_name, last_name)')
+        .select('*, students!fk_transactions_student(first_name, last_name)')
         .eq('organization_id', orgId)
         .gte('created_at', start)
         .lte('created_at', end)
@@ -177,7 +179,7 @@ export function FinancePage() {
         const { data: stData } = await supabase.from('students').select('id, first_name, last_name').eq('organization_id', orgId)
         setStudents(stData || [])
 
-        const { data: plData } = await supabase.from('plans').select('id, name, price, duration_days').eq('organization_id', orgId).eq('is_active', true)
+        const { data: plData } = await supabase.from('plans').select('id, name, price, duration_days, service_id, service:services!fk_plans_service(name)').eq('organization_id', orgId).eq('is_active', true)
         setPlans(plData || [])
       }
       loadSelects()
@@ -188,10 +190,11 @@ export function FinancePage() {
     setSelectedPlanId(planId)
     const plan = plans.find(p => p.id === planId)
     if (plan) {
+        const serviceName = plan.service?.name ? ` (${plan.service.name})` : ''
         setFormData(prev => ({
             ...prev,
             amount: plan.price.toString(),
-            concept: `Membresía: ${plan.name}`
+            concept: `Membresía: ${plan.name}${serviceName}`
         }))
     }
   }
@@ -218,7 +221,7 @@ export function FinancePage() {
             const startDate = new Date()
             const endDate = addDays(startDate, plan.duration_days) 
 
-            const { error: memError } = await supabase.from('memberships').insert({
+            const { data: membershipData, error: memError } = await supabase.from('memberships').insert({
                 organization_id: orgId,
                 student_id: formData.student_id,
                 plan_id: plan.id,
@@ -226,8 +229,32 @@ export function FinancePage() {
                 end_date: format(endDate, 'yyyy-MM-dd'),
                 price_paid: parseFloat(formData.amount),
                 status: 'active'
-            })
+            }).select()
             if (memError) throw memError
+
+            // 🆕 GENERAR CLASES RECURRENTES SI EL PLAN LAS TIENE CONFIGURADAS
+            if (membershipData && membershipData[0]) {
+                const membershipId = membershipData[0].id
+                const { data: recurringResult, error: recurringError } = await supabase
+                    .rpc('generate_recurring_appointments', { p_membership_id: membershipId })
+                
+                if (recurringError) {
+                    console.error('Error generando clases recurrentes:', recurringError)
+                    showToast('Membresía creada, pero hubo un error al generar clases automáticas', 'warning')
+                } else if (recurringResult && recurringResult.length > 0) {
+                    const appointmentsCreated = recurringResult[0].appointments_created
+                    if (appointmentsCreated > 0) {
+                        showToast(`Membresía activada con ${appointmentsCreated} clases programadas automáticamente 🎉`, 'success')
+                        // No mostrar el toast genérico
+                        setIsDrawerOpen(false)
+                        setFormData({ student_id: '', amount: '', payment_method: 'transfer', concept: '' })
+                        setSaleType('custom')
+                        setSelectedPlanId('')
+                        loadFinanceData()
+                        return // Salir temprano para no mostrar el toast genérico
+                    }
+                }
+            }
         }
       }
       
@@ -421,7 +448,7 @@ export function FinancePage() {
                 <label className="block text-xs font-bold text-indigo-400 uppercase">Seleccionar Plan</label>
                 <select required className="w-full bg-zinc-900 border border-indigo-500/30 rounded p-3 text-white focus:border-indigo-500 outline-none" value={selectedPlanId} onChange={e => handlePlanChange(e.target.value)}>
                     <option value="">-- Elige una Membresía --</option>
-                    {plans.map(p => <option key={p.id} value={p.id}>{p.name} ({formatMoney(p.price)})</option>)}
+                    {plans.map(p => <option key={p.id} value={p.id}>{p.name}{p.service ? ` — ${p.service.name}` : ''} ({formatMoney(p.price)})</option>)}
                 </select>
                 {selectedPlanId && <div className="flex items-center gap-2 text-xs text-indigo-300"><CheckCircle2 size={12}/><span>Se activará automáticamente al guardar.</span></div>}
             </div>

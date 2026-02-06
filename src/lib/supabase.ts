@@ -22,10 +22,13 @@ export type Profile = {
   id: string
   email: string
   full_name: string
-  // Actualizamos la lista de roles permitidos:
-  role: 'super_admin' | 'owner' | 'staff' | 'professional' | 'manager' | 'receptionist'
+  role: 'super_admin' | 'owner' | 'staff' | 'teacher'
   organization_id: string
-  assigned_branch_id?: string // Agregamos esto por si lo usas en el futuro
+  assigned_branch_id?: string
+  phone?: string
+  specialty?: string
+  base_salary?: number
+  commission_percentage?: number
   created_at: string
   updated_at: string
 }
