@@ -4,14 +4,15 @@ import { useAuth } from '../contexts/AuthContext'
 import { 
   Plus, Search, Tag, Package, CalendarRange, 
   MoreVertical, DollarSign, Archive, Trash2,
-  CreditCard, CalendarDays, Loader2 
+  CreditCard, CalendarDays, Loader2, X, CheckCircle2 
 } from 'lucide-react'
 import { Drawer } from '../components/Drawer'
+import { EmptyState } from '../components/EmptyState'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
 
 // --- 1. DEFINICIÓN DE TIPOS ---
-type ServiceItem = {
+interface ServiceItem {
   id: string
   name: string
   description: string | null
@@ -21,6 +22,7 @@ type ServiceItem = {
   class_limit?: number | null
   service_id?: string | null
   service?: { name: string } | null
+  plan_services_access?: { service_id: string; services: { name: string } }[]
 }
 
 type ServiceOption = { id: string; name: string }
@@ -53,7 +55,7 @@ export default function ServicesPage() {
     description: '',
     duration_days: '30',
     class_limit: '',
-    service_id: '',
+    service_ids: [] as string[],
     recurring_enabled: false,
     recurring_days: [] as number[],
     recurring_time: '09:00',
@@ -94,7 +96,7 @@ export default function ServicesPage() {
           const [plansRes, servicesRes, teachersRes] = await Promise.all([
             supabase
               .from('plans')
-              .select('*, service:services!fk_plans_service(name)')
+              .select('*, plan_services_access (service_id, services (name))')
               .eq('organization_id', orgId)
               .order('name', { ascending: true }),
             supabase
@@ -131,11 +133,11 @@ export default function ServicesPage() {
         description: '', 
         duration_days: '30', 
         class_limit: '',
-        service_id: '',
+        service_ids: [],
         recurring_enabled: false,
         recurring_days: [],
         recurring_time: '09:00',
-        default_teacher_type: '',
+        default_teacher_type: '' as '' | 'system' | 'professional',
         default_teacher_id: ''
     }) 
     setIsDrawerOpen(true)
@@ -143,13 +145,15 @@ export default function ServicesPage() {
 
   const handleOpenEdit = (item: ServiceItem) => {
     setSelectedItem(item)
+    // Extract service_ids from junction table or fallback to legacy field
+    const linkedServiceIds = item.plan_services_access?.map(psa => psa.service_id) || (item.service_id ? [item.service_id] : [])
     setFormData({
         name: item.name,
         price: item.price.toString(),
         description: item.description || '',
         duration_days: item.duration_days ? item.duration_days.toString() : '30',
         class_limit: item.class_limit ? item.class_limit.toString() : '',
-        service_id: item.service_id || '',
+        service_ids: linkedServiceIds,
         recurring_enabled: (item as any).recurring_enabled || false,
         recurring_days: (item as any).recurring_days || [],
         recurring_time: (item as any).recurring_time || '09:00',
@@ -179,38 +183,55 @@ export default function ServicesPage() {
     }
 
     const planPayload = activeTab === 'plans' ? {
-        duration_days: durationNum,
-        class_limit: limitNum,
-        service_id: formData.service_id || null,
-        recurring_enabled: formData.recurring_enabled,
-        recurring_days: formData.recurring_enabled ? formData.recurring_days : null,
-        recurring_time: formData.recurring_enabled ? formData.recurring_time : null,
-        default_teacher_type: formData.recurring_enabled && formData.default_teacher_id ? formData.default_teacher_type : null,
-        default_teacher_id: formData.recurring_enabled && formData.default_teacher_id ? formData.default_teacher_id : null,
-        ...basePayload 
-    } : basePayload
+      duration_days: durationNum,
+      class_limit: limitNum,
+      service_id: formData.service_ids.length === 1 ? formData.service_ids[0] : null, // legacy compat
+      recurring_enabled: formData.recurring_enabled,
+      recurring_days: formData.recurring_enabled ? formData.recurring_days : null,
+      recurring_time: formData.recurring_enabled ? formData.recurring_time : null,
+      default_teacher_type: formData.recurring_enabled && formData.default_teacher_id ? formData.default_teacher_type : null,
+      default_teacher_id: formData.recurring_enabled && formData.default_teacher_id ? formData.default_teacher_id : null,
+      ...basePayload 
+  } : basePayload
 
-    try {
-      if (selectedItem) {
-        // UPDATE
+  try {
+    let savedPlanId: string | null = null
+    if (selectedItem) {
+      // UPDATE
         const { error } = await supabase
-            .from(targetTable)
-            .update(activeTab === 'plans' ? planPayload : basePayload)
-            .eq('id', selectedItem.id)
-        if (error) throw error
-        showToast('Actualizado correctamente', 'success')
-      } else {
-        // CREATE
-        const { error } = await supabase
-            .from(targetTable)
-            .insert({
-                organization_id: orgId,
-                is_active: true,
-                ...(activeTab === 'plans' ? planPayload : basePayload)
-            })
-        if (error) throw error
-        showToast('Creado exitosamente', 'success')
+          .from(targetTable)
+          .update(activeTab === 'plans' ? planPayload : basePayload)
+          .eq('id', selectedItem.id)
+      if (error) throw error
+      savedPlanId = selectedItem.id
+      showToast('Actualizado correctamente', 'success')
+    } else {
+      // CREATE
+      const { data: inserted, error } = await supabase
+          .from(targetTable)
+          .insert({
+              organization_id: orgId,
+              is_active: true,
+              ...(activeTab === 'plans' ? planPayload : basePayload)
+          })
+          .select('id')
+          .single()
+      if (error) throw error
+      savedPlanId = inserted.id
+      showToast('Creado exitosamente', 'success')
+    }
+
+    // Sync plan_services_access junction table
+    if (activeTab === 'plans' && savedPlanId) {
+      // Delete old links
+      await supabase.from('plan_services_access').delete().eq('plan_id', savedPlanId)
+      // Insert new links
+      if (formData.service_ids.length > 0) {
+        const rows = formData.service_ids.map(sid => ({ plan_id: savedPlanId!, service_id: sid }))
+        const { error: junctionError } = await supabase.from('plan_services_access').insert(rows)
+        if (junctionError) console.error('Error syncing plan_services_access:', junctionError)
       }
+    }  
 
       setIsDrawerOpen(false)
       loadCatalog()
@@ -320,10 +341,14 @@ export default function ServicesPage() {
             /* GRID DE TARJETAS */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredList.length === 0 ? (
-                <div className="col-span-full text-center py-20 border border-zinc-800 border-dashed rounded-2xl bg-gradient-to-br from-zinc-900/50 to-zinc-950/50 backdrop-blur-sm">
-                    <Package className="mx-auto h-16 w-16 text-zinc-700 mb-4"/>
-                    <p className="text-zinc-500 font-medium mb-2">No hay items registrados</p>
-                    <p className="text-zinc-600 text-sm">Crea tu primer {activeTab === 'services' ? 'servicio' : 'plan'}</p>
+                <div className="col-span-full">
+                  <EmptyState
+                    icon={Package}
+                    title={activeTab === 'services' ? '¡Crea tu primer servicio!' : '¡Crea tu primer plan!'}
+                    description={activeTab === 'services' ? 'Agrega los tipos de clase que ofrece tu academia para poder agendarlas.' : 'Crea membresías y paquetes para que tus alumnos se inscriban fácilmente.'}
+                    actionLabel={`Nuevo ${activeTab === 'services' ? 'Servicio' : 'Plan'}`}
+                    onAction={handleOpenCreate}
+                  />
                 </div>
             ) : (
                 filteredList.map((item, index) => (
@@ -356,14 +381,20 @@ export default function ServicesPage() {
                             </h3>
                             
                             {activeTab === 'services' ? (
-                                <p className="text-sm text-zinc-500 line-clamp-2 h-10">
-                                    {item.description || 'Sin descripción'}
-                                </p>
+                                item.description ? (
+                                    <p className="text-sm text-zinc-500 line-clamp-2 h-10">
+                                        {item.description}
+                                    </p>
+                                ) : null
                             ) : (
                                 <div className="mt-2 space-y-1">
                                     <div className="flex items-center gap-2 text-xs text-zinc-400">
                                         <Tag size={12} className="text-indigo-400"/> 
-                                        <span>Cubre: <strong className="text-indigo-300">{item.service?.name || 'Sin servicio vinculado'}</strong></span>
+                                        <span>Incluye: <strong className="text-indigo-300">
+                                          {item.plan_services_access && item.plan_services_access.length > 0
+                                            ? item.plan_services_access.map(psa => psa.services?.name).filter(Boolean).join(', ')
+                                            : item.service?.name || 'Sin servicio vinculado'}
+                                        </strong></span>
                                     </div>
                                     <div className="flex items-center gap-2 text-xs text-zinc-400">
                                         <CalendarDays size={12}/> 
@@ -437,24 +468,56 @@ export default function ServicesPage() {
                     <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800 space-y-4">
                         <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-wider">Configuración de Membresía</h4>
                         
-                        {/* SERVICIO VINCULADO */}
+                        {/* SERVICIOS VINCULADOS (MULTI-SELECT) */}
                         <div>
                             <label className="block text-xs font-medium text-zinc-400 mb-1">
-                                Servicio que cubre esta membresía <span className="text-red-400">*</span>
+                                ¿Qué servicios incluye este plan? <span className="text-red-400">*</span>
                             </label>
-                            <select 
-                                required
-                                className="w-full h-10 px-3 bg-zinc-900 border border-zinc-700 rounded-md text-white focus:outline-none focus:border-emerald-500 appearance-none"
-                                value={formData.service_id} 
-                                onChange={e => setFormData({...formData, service_id: e.target.value})}
-                            >
-                                <option value="">-- Seleccionar servicio --</option>
-                                {availableServices.map(s => (
-                                    <option key={s.id} value={s.id}>{s.name}</option>
-                                ))}
-                            </select>
+                            {formData.service_ids.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mb-2">
+                                {formData.service_ids.map(sid => {
+                                  const svc = availableServices.find(s => s.id === sid)
+                                  return svc ? (
+                                    <span key={sid} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                                      {svc.name}
+                                      <button type="button" onClick={() => setFormData({...formData, service_ids: formData.service_ids.filter(id => id !== sid)})} className="ml-0.5 hover:text-white transition-colors">
+                                        <X size={12} />
+                                      </button>
+                                    </span>
+                                  ) : null
+                                })}
+                              </div>
+                            )}
+                            <div className="space-y-1 max-h-36 overflow-y-auto border border-zinc-800 rounded-lg bg-zinc-950 divide-y divide-zinc-800/50">
+                              {availableServices.map(s => {
+                                const isChecked = formData.service_ids.includes(s.id)
+                                return (
+                                  <button
+                                    key={s.id}
+                                    type="button"
+                                    onClick={() => {
+                                      const newIds = isChecked
+                                        ? formData.service_ids.filter(id => id !== s.id)
+                                        : [...formData.service_ids, s.id]
+                                      setFormData({...formData, service_ids: newIds})
+                                    }}
+                                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors text-sm ${
+                                      isChecked ? 'bg-emerald-500/10 text-emerald-300' : 'hover:bg-zinc-800 text-white'
+                                    }`}
+                                  >
+                                    <div className={`h-4 w-4 rounded border flex items-center justify-center flex-shrink-0 ${isChecked ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600'}`}>
+                                      {isChecked && <CheckCircle2 size={10} className="text-white" />}
+                                    </div>
+                                    {s.name}
+                                  </button>
+                                )
+                              })}
+                              {availableServices.length === 0 && (
+                                <p className="text-xs text-zinc-600 text-center py-3">No hay servicios activos</p>
+                              )}
+                            </div>
                             <p className="text-[10px] text-zinc-500 mt-1">
-                                El alumno tendrá acceso a TODAS las clases de este servicio durante la duración del plan.
+                                El alumno tendrá acceso a TODAS las clases de los servicios seleccionados durante la duración del plan.
                             </p>
                         </div>
 
@@ -586,7 +649,7 @@ export default function ServicesPage() {
                         {!formData.recurring_enabled && (
                             <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
                                 <p className="text-[11px] text-emerald-400/80 leading-relaxed">
-                                    💡 Al suscribir un alumno a este plan, tendrá acceso ilimitado a todas las clases del servicio seleccionado durante la duración del plan. No se requiere agendar cada clase manualmente.
+                                    💡 Al suscribir un alumno a este plan, tendrá acceso ilimitado a todas las clases de los servicios incluidos durante la duración del plan. No se requiere agendar cada clase manualmente.
                                 </p>
                             </div>
                         )}

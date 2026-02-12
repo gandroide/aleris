@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { 
  X, LogOut, 
   Home, Settings, Tag, Calendar, CalendarDays, Wallet, 
-  Users, UserCog, Building2, CreditCard, MoreHorizontal 
+  Users, UserCog, Building2, CreditCard, MoreHorizontal, Banknote 
 } from 'lucide-react'
 
 interface AppLayoutProps {
@@ -40,14 +40,24 @@ export function AppLayout({ children }: AppLayoutProps) {
       ]
     }
 
+    // Teacher / Professional (Vista Limitada)
+    if (profile?.role === 'teacher') {
+      return [
+        { icon: Home, label: 'Inicio', path: '/dashboard' },
+        { icon: Calendar, label: 'Mi Agenda', path: '/calendar' },
+        { icon: Users, label: 'Mis Alumnos', path: '/clients' },
+        { icon: Banknote, label: 'Mis Pagos', path: '/teacher/payroll' },
+      ]
+    }
+
     // Owner (Default)
     return [
       { icon: Home, label: 'Inicio', path: '/dashboard' },
       { icon: Calendar, label: 'Agenda', path: '/calendar' }, 
       { icon: CalendarDays, label: 'Clases', path: '/classes' },
-      { icon: Wallet, label: 'Tesorería', path: '/finance' },
-      { icon: Users, label: 'Clientes', path: '/clients' },
-      { icon: UserCog, label: 'Personal', path: '/staff' },
+      { icon: Wallet, label: 'Caja', path: '/finance' },
+      { icon: Users, label: 'Alumnos', path: '/clients' },
+      { icon: UserCog, label: 'Instructores', path: '/staff' },
       { icon: Tag, label: 'Servicios', path: '/services' },
       { icon: Settings, label: 'Config', path: '/settings' },
     ]
@@ -61,8 +71,9 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const formatRole = (role?: string) => {
     if (role === 'super_admin') return '👑 Super Admin'
-    if (role === 'owner') return '⭐ Dueño / Gerente'
+    if (role === 'owner') return '⭐ Director(a) de Academia'
     if ((role as any) === 'staff') return '🛡️ Administrativo'
+    if (role === 'teacher') return '🎓 Instructor'
     return role
   }
 

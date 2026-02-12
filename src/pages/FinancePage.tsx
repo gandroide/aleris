@@ -8,6 +8,7 @@ import {
   Loader2, Calculator, Package, CheckCircle2 
 } from 'lucide-react'
 import { Drawer } from '../components/Drawer'
+import { EmptyState } from '../components/EmptyState'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
 
@@ -283,7 +284,7 @@ export default function FinancePage() {
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Wallet className="text-emerald-500" />
-            Tesorería & Nómina
+            Caja & Nómina
           </h1>
           <p className="text-zinc-400 text-sm">
             Balance de {format(currentDate, 'MMMM yyyy', { locale: es })}
@@ -341,7 +342,13 @@ export default function FinancePage() {
                     <span className="text-xs text-zinc-500">{transactions.length} registros</span>
                 </div>
                 {transactions.length === 0 ? (
-                    <div className="p-10 text-center text-zinc-500 italic">No hay ingresos registrados.</div>
+                    <EmptyState
+                      icon={Banknote}
+                      title="Aún no hay ingresos este mes"
+                      description="Registra tu primer cobro o venta de membresía para empezar a ver tus finanzas."
+                      actionLabel="Registrar Ingreso"
+                      onAction={() => setIsDrawerOpen(true)}
+                    />
                 ) : (
                     <div className="divide-y divide-zinc-800">
                         {transactions.map(tx => (

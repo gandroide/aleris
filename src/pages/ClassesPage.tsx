@@ -8,10 +8,14 @@ import { es } from 'date-fns/locale'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { 
-  CalendarDays, ChevronLeft, ChevronRight, Clock, User, BookOpen,
+  CalendarDays, ChevronLeft, ChevronRight, Clock, User,
   Shield, CreditCard, Loader2, RefreshCw, Filter,
   LayoutGrid, List, CalendarRange, Users, Zap
 } from 'lucide-react'
+import { EmptyState } from '../components/EmptyState'
+import { AttendanceDrawer } from '../components/AttendanceDrawer'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
 
 // --- TYPES ---
 type ViewMode = 'day' | 'week' | 'month'
@@ -57,17 +61,22 @@ function MembershipBadge({ price }: { price: number }) {
 }
 
 // --- CARD de Clase Individual ---
-function ClassCard({ item }: { item: ClassItem }) {
+function ClassCard({ item, onClick }: { item: ClassItem, onClick: () => void }) {
+  // Logic: Title is ALWAYS service name. Never student name.
+  const serviceName = item.services?.name || 'Clase'
+  const teacherName = item.profiles?.full_name || item.professionals?.full_name || 'Sin asignar'
+  const timeStr = format(new Date(item.start_time), 'HH:mm')
+  
+  const hasStudent = !!item.students
   const studentName = item.students 
     ? `${item.students.first_name} ${item.students.last_name}`
-    : 'Sin alumno'
-
-  const teacherName = item.profiles?.full_name || item.professionals?.full_name || 'Sin asignar'
-  const serviceName = item.services?.name || 'Sin servicio'
-  const timeStr = format(new Date(item.start_time), 'HH:mm')
+    : null
 
   return (
-    <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-xl p-4 hover:border-indigo-500/30 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300 group">
+    <div 
+      onClick={onClick}
+      className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-xl p-4 hover:border-indigo-500/30 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300 group cursor-pointer"
+    >
       <div className="flex items-start gap-3">
         {/* Time badge */}
         <div className="bg-gradient-to-br from-indigo-500/20 to-purple-500/20 px-3 py-2 rounded-lg border border-indigo-500/30 text-indigo-300 font-mono font-bold text-sm flex-shrink-0 group-hover:border-indigo-500/50 transition-colors">
@@ -76,20 +85,33 @@ function ClassCard({ item }: { item: ClassItem }) {
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <h4 className="text-white font-bold text-sm truncate group-hover:text-indigo-300 transition-colors">
-            {studentName}
+          {/* TITLE: Service Name */}
+          <h4 className="text-white font-bold text-sm truncate group-hover:text-indigo-300 transition-colors flex items-center gap-2">
+            {serviceName}
           </h4>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+          
+          {/* SUBTITLE: Teacher */}
+          <div className="flex items-center gap-2 mt-1.5">
             <span className="flex items-center gap-1 text-xs text-zinc-400">
               <User size={11} className="text-zinc-500" /> {teacherName}
             </span>
-            <span className="flex items-center gap-1 text-xs text-zinc-400">
-              <BookOpen size={11} className="text-zinc-500" /> {serviceName}
-            </span>
+          </div>
+
+          {/* STUDENT INFO (Badge style, not title) */}
+          <div className="mt-2">
+            {hasStudent ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
+                👤 {studentName}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                 Cupo Disponible
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Status badges */}
+        {/* Status badges (Top Right) */}
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
           <MembershipBadge price={item.price_at_booking} />
           {item.is_private_class && (
@@ -109,6 +131,7 @@ export default function ClassesPage() {
   const user = profile as unknown as ExtendedProfile
   const orgId = user?.organization_id
   const branchId = user?.assigned_branch_id
+  const { toasts, showToast, removeToast } = useToast()
 
   // --- STATE ---
   const [viewMode, setViewMode] = useState<ViewMode>('day')
@@ -116,6 +139,7 @@ export default function ClassesPage() {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [isAttendanceOpen, setIsAttendanceOpen] = useState(false)
 
   // Filters
   const [services, setServices] = useState<ServiceOption[]>([])
@@ -280,11 +304,11 @@ export default function ClassesPage() {
 
     if (dayClasses.length === 0) {
       return (
-        <div className="text-center py-16">
-          <CalendarDays size={48} className="mx-auto text-zinc-700 mb-4" />
-          <p className="text-zinc-500 text-lg font-medium">No hay clases programadas</p>
-          <p className="text-zinc-600 text-sm mt-1">Este día no tiene actividades en la agenda</p>
-        </div>
+        <EmptyState
+          icon={CalendarDays}
+          title="Sin clases hoy"
+          description="No hay actividades programadas para este día. ¡Un buen momento para planificar!"
+        />
       )
     }
 
@@ -310,7 +334,13 @@ export default function ClassesPage() {
               <span className="text-xs text-zinc-600">{items.length} {items.length === 1 ? 'clase' : 'clases'}</span>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pl-2">
-              {items.map(item => <ClassCard key={item.id} item={item} />)}
+              {items.map(item => (
+                <ClassCard 
+                  key={item.id} 
+                  item={item} 
+                  onClick={() => setIsAttendanceOpen(true)}
+                />
+              ))}
             </div>
           </div>
         ))}
@@ -499,6 +529,8 @@ export default function ClassesPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+      
       {/* === HEADER === */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -692,6 +724,17 @@ export default function ClassesPage() {
           {viewMode === 'month' && renderMonthView()}
         </div>
       )}
+
+      {/* Attendance Drawer */}
+      <AttendanceDrawer
+        isOpen={isAttendanceOpen}
+        onClose={() => setIsAttendanceOpen(false)}
+        date={currentDate}
+        onSuccess={(msg) => {
+          showToast(msg, 'success')
+          loadClasses(true)
+        }}
+      />
     </div>
   )
 }

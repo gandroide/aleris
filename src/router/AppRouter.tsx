@@ -22,6 +22,8 @@ const ServicesPage = lazy(() => import('../pages/ServicesPage'))
 const CalendarPage = lazy(() => import('../pages/CalendarPage'))
 const FinancePage = lazy(() => import('../pages/FinancePage'))
 const ClassesPage = lazy(() => import('../pages/ClassesPage'))
+const TeacherDashboard = lazy(() => import('../pages/TeacherDashboard'))
+const TeacherPayrollPage = lazy(() => import('../pages/TeacherPayrollPage'))
 
 function AppRoutes() {
   const { user, profile, loading } = useAuth()
@@ -71,7 +73,11 @@ function AppRoutes() {
         {/* 1. DASHBOARD (Switcher Automático) */}
         <Route 
           path="/dashboard" 
-          element={profile?.role === 'super_admin' ? <AdminDashboard /> : <DashboardPage />} 
+          element={
+            profile?.role === 'super_admin' ? <AdminDashboard /> 
+            : profile?.role === 'teacher' ? <TeacherDashboard />
+            : <DashboardPage />
+          } 
         />
 
         {/* 2. RUTAS COMUNES (Para todos los roles) */}
@@ -85,6 +91,9 @@ function AppRoutes() {
         {/* Podrías agregar una validación extra aquí si el Super Admin no debe ver esto */}
         <Route path="/clients" element={<ClientsPage />} />
         <Route path="/staff" element={<StaffPage />} />
+
+        {/* 5. RUTAS DE PROFESOR */}
+        <Route path="/teacher/payroll" element={<TeacherPayrollPage />} />
 
 
         {/* 4. RUTAS DE SUPER ADMIN */}

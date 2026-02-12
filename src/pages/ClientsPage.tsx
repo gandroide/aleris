@@ -8,6 +8,7 @@ import {
   Crown, History, Loader2
 } from 'lucide-react'
 import { Drawer } from '../components/Drawer'
+import { EmptyState } from '../components/EmptyState'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
 import { format, differenceInDays } from 'date-fns'
@@ -219,7 +220,7 @@ export default function ClientsPage() {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-white">Clientes</h1>
+            <h1 className="text-2xl font-bold text-white">Alumnos</h1>
             <p className="text-zinc-400 mt-1">Gestión de alumnos y perfiles</p>
           </div>
           <button
@@ -227,7 +228,7 @@ export default function ClientsPage() {
             disabled={!!errorMsg}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
           >
-            <Plus className="h-5 w-5" /> <span>Nuevo Cliente</span>
+            <Plus className="h-5 w-5" /> <span>Nuevo Alumno</span>
           </button>
         </div>
 
@@ -253,11 +254,13 @@ export default function ClientsPage() {
                 </div>
 
                 {clients.length === 0 ? (
-                    <div className="text-center py-20 border border-zinc-800 border-dashed rounded-2xl bg-zinc-900/30 backdrop-blur-sm">
-                        <User className="h-16 w-16 text-zinc-700 mx-auto mb-4" />
-                        <p className="text-zinc-500 font-medium">No hay clientes registrados</p>
-                        <p className="text-zinc-600 text-sm mt-2">Comienza agregando tu primer cliente</p>
-                    </div>
+                    <EmptyState
+                      icon={User}
+                      title="¡Tu primer alumno te espera!"
+                      description="Agrega a tus alumnos para llevar el control de pagos, asistencia y membresías."
+                      actionLabel="Inscribir Alumno"
+                      onAction={() => setIsCreateOpen(true)}
+                    />
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     {filteredClients.map((client, index) => (

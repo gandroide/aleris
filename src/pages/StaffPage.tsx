@@ -494,12 +494,12 @@ export default function StaffPage() {
                                 <div className="flex items-center gap-2 bg-amber-500/10 px-3 py-2 rounded-lg border border-amber-500/20 backdrop-blur-sm">
                                     <Star size={14} fill="currentColor" className="text-amber-500"/>
                                     <span className="text-sm text-amber-400 font-bold">
-                                        {Number(member.avg_rating).toFixed(1)}
+                                        {Number(member.avg_rating || 0).toFixed(1)}
                                     </span>
                                 </div>
-                                <div className="flex items-center gap-2 bg-zinc-800/50 px-3 py-2 rounded-lg border border-zinc-700/50 backdrop-blur-sm">
-                                    <Building2 size={14} className="text-zinc-500"/>
-                                    <span className="text-sm text-zinc-400 font-semibold">
+                                <div className="flex items-center gap-2 bg-zinc-800/60 px-3 py-2 rounded-lg border border-zinc-700 hover:border-zinc-500 transition-colors backdrop-blur-sm">
+                                    <Building2 size={14} className="text-zinc-400"/>
+                                    <span className="text-sm text-zinc-300 font-semibold">
                                         {member.branch_count} {member.branch_count === 1 ? 'sede' : 'sedes'}
                                     </span>
                                 </div>
