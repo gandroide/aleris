@@ -6,8 +6,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
 import {
-  Loader2, Banknote, Calendar, Users, Clock,
-  TrendingUp, AlertCircle, DollarSign, BookOpen, Info
+  Loader2, Banknote, Calendar, Users,
+  TrendingUp, DollarSign, BookOpen, Info
 } from 'lucide-react'
 
 interface ExtendedProfile {
