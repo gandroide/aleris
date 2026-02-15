@@ -5,8 +5,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { 
   Plus, Search, Phone, MapPin, User, 
   Briefcase, Star, Building2, Calendar, Users, MessageSquare, 
-  Loader2, Trash2, Clock, DollarSign, Percent, Shield,
-  Save, Mail
+  Loader2, Trash2, Clock, DollarSign, Shield,
+  Save, Mail, ArrowRight
 } from 'lucide-react'
 import { Drawer } from '../components/Drawer'
 import { useToast } from '../hooks/useToast'
@@ -412,6 +412,21 @@ export default function StaffPage() {
     [staff, searchTerm]
   )
 
+  // --- KPIS DASHBOARD ---
+  const kpiStats = useMemo(() => {
+    const total = staff.length
+    const internal = staff.filter(s => s.type === 'system').length
+    const external = staff.filter(s => s.type === 'professional').length
+    
+    // Calcular promedio solo de quienes tienen rating > 0
+    const ratedStaff = staff.filter(s => s.avg_rating > 0)
+    const avgRating = ratedStaff.length > 0 
+        ? ratedStaff.reduce((acc, curr) => acc + curr.avg_rating, 0) / ratedStaff.length 
+        : 0
+
+    return { total, internal, external, avgRating }
+  }, [staff])
+
   return (
     <>
       <ToastContainer toasts={toasts} onClose={removeToast} />
@@ -426,6 +441,39 @@ export default function StaffPage() {
                 <Plus className="h-5 w-5" /> <span>Nuevo Miembro</span>
             </button>
         </div>
+
+        {/* --- KPI DASHBOARD --- */}
+        {!loading && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl flex items-center justify-between">
+                    <div>
+                        <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Total Equipo</p>
+                        <p className="text-2xl font-bold text-white font-mono">{kpiStats.total}</p>
+                    </div>
+                    <div className="h-10 w-10 bg-indigo-500/10 rounded-lg flex items-center justify-center text-indigo-500 border border-indigo-500/20">
+                        <Users size={20} />
+                    </div>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl flex items-center justify-between">
+                    <div>
+                        <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Internos / Externos</p>
+                        <p className="text-2xl font-bold text-white font-mono">{kpiStats.internal} <span className="text-zinc-600 text-sm font-normal">/ {kpiStats.external}</span></p>
+                    </div>
+                    <div className="h-10 w-10 bg-purple-500/10 rounded-lg flex items-center justify-center text-purple-500 border border-purple-500/20">
+                        <Briefcase size={20} />
+                    </div>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl flex items-center justify-between">
+                    <div>
+                        <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Rating Promedio</p>
+                        <p className="text-2xl font-bold text-white font-mono">{kpiStats.avgRating.toFixed(1)} <span className="text-sm text-zinc-600">★</span></p>
+                    </div>
+                    <div className="h-10 w-10 bg-amber-500/10 rounded-lg flex items-center justify-center text-amber-500 border border-amber-500/20">
+                        <Star size={20} />
+                    </div>
+                </div>
+            </div>
+        )}
 
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-zinc-400" />
@@ -444,18 +492,28 @@ export default function StaffPage() {
                     <div 
                         key={member.id} 
                         onClick={() => handleStaffClick(member)}
-                        className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-2xl p-6 hover:border-indigo-500/40 cursor-pointer transition-all duration-300 group relative overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 card-hover animate-in slide-in-from-bottom duration-500"
+                        className={`bg-zinc-900 border rounded-2xl p-6 cursor-pointer transition-all duration-300 group relative overflow-hidden card-hover animate-in slide-in-from-bottom duration-500 hover:shadow-xl ${
+                            member.type === 'professional' 
+                            ? 'border-purple-500/30 hover:border-purple-500/60 hover:shadow-purple-500/10' 
+                            : 'border-zinc-800 hover:border-indigo-500/40 hover:shadow-indigo-500/10'
+                        }`}
                         style={{ animationDelay: `${index * 0.05}s` }}
                     >
                         {/* Background gradient effect */}
-                        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                        <div className={`absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
+                            member.type === 'professional' ? 'from-purple-500/5' : 'from-indigo-500/5'
+                        }`}></div>
                         
                         {/* Role Badge */}
-                        <div className="absolute top-4 right-4">
+                        <div className="absolute top-4 right-4 z-20">
                             {member.role === 'owner' ? (
-                                <div className="p-2 bg-indigo-500/10 rounded-lg ring-2 ring-indigo-500/20">
+                                <div className="p-2 bg-indigo-500/10 rounded-lg ring-1 ring-indigo-500/20" title="Admin / Dueño">
                                     <Shield size={16} className="text-indigo-400"/>
                                 </div>
+                            ) : member.type === 'professional' ? (
+                                <span className="text-[10px] bg-purple-500/10 px-2 py-1 rounded-lg text-purple-400 border border-purple-500/20 font-bold uppercase tracking-wider">
+                                    EXTERNO
+                                </span>
                             ) : (
                                 <div className="p-2 bg-zinc-800/50 rounded-lg">
                                     <User size={16} className="text-zinc-600"/>
@@ -466,48 +524,80 @@ export default function StaffPage() {
                         <div className="relative z-10">
                             <div className="flex items-center gap-4 mb-5">
                                 <div className="relative">
-                                    <div className="h-14 w-14 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-300 flex items-center justify-center font-bold text-xl border-2 border-indigo-500/30 group-hover:border-indigo-500/60 transition-colors shadow-lg">
+                                    <div className={`h-14 w-14 rounded-full flex items-center justify-center font-bold text-xl border-2 transition-colors shadow-lg ${
+                                        member.type === 'professional'
+                                        ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 text-purple-300 border-purple-500/30 group-hover:border-purple-500/60'
+                                        : 'bg-gradient-to-br from-indigo-500/20 to-blue-500/20 text-indigo-300 border-indigo-500/30 group-hover:border-indigo-500/60'
+                                    }`}>
                                         {member.full_name[0]}
                                     </div>
                                     {/* Rating indicator */}
-                                    <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-amber-500 flex items-center justify-center border-2 border-zinc-900 shadow-lg">
-                                        <Star size={12} fill="currentColor" className="text-zinc-900"/>
-                                    </div>
+                                    {member.avg_rating > 0 && (
+                                        <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-amber-500 flex items-center justify-center border-2 border-zinc-900 shadow-lg">
+                                            <Star size={12} fill="currentColor" className="text-zinc-900"/>
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="flex-1">
-                                    <h3 className="font-bold text-white group-hover:text-indigo-400 transition-colors text-lg">
+                                <div className="flex-1 min-w-0">
+                                    <h3 className={`font-bold text-lg transition-colors truncate ${
+                                        member.type === 'professional' ? 'text-white group-hover:text-purple-400' : 'text-white group-hover:text-indigo-400'
+                                    }`}>
                                         {member.full_name}
                                     </h3>
-                                    <div className="flex gap-2 items-center mt-1">
-                                        <p className="text-xs text-zinc-500 uppercase font-semibold">{member.specialty || 'Staff'}</p>
-                                        {member.type === 'professional' && (
-                                            <span className="text-[10px] bg-purple-500/10 px-2 py-0.5 rounded-lg text-purple-400 border border-purple-500/20 font-bold uppercase">
-                                                EXT
-                                            </span>
-                                        )}
-                                    </div>
+                                    <p className="text-xs text-zinc-500 uppercase font-semibold truncate">{member.specialty || 'Staff General'}</p>
                                 </div>
                             </div>
                             
                             {/* Stats Section */}
-                            <div className="flex items-center justify-between pt-4 border-t border-zinc-800 gap-3">
-                                <div className="flex items-center gap-2 bg-amber-500/10 px-3 py-2 rounded-lg border border-amber-500/20 backdrop-blur-sm">
-                                    <Star size={14} fill="currentColor" className="text-amber-500"/>
-                                    <span className="text-sm text-amber-400 font-bold">
-                                        {Number(member.avg_rating || 0).toFixed(1)}
+                            <div className="flex items-center justify-between pt-4 border-t border-zinc-800/50 gap-3">
+                                <div className="flex items-center gap-2 bg-zinc-950/30 px-3 py-2 rounded-lg border border-zinc-800/50">
+                                    <Star size={14} className={member.avg_rating > 0 ? "text-amber-500" : "text-zinc-600"} fill={member.avg_rating > 0 ? "currentColor" : "none"}/>
+                                    <span className={`text-sm font-bold ${member.avg_rating > 0 ? "text-amber-400" : "text-zinc-600"}`}>
+                                        {member.avg_rating > 0 ? Number(member.avg_rating).toFixed(1) : '-'}
                                     </span>
                                 </div>
-                                <div className="flex items-center gap-2 bg-zinc-800/60 px-3 py-2 rounded-lg border border-zinc-700 hover:border-zinc-500 transition-colors backdrop-blur-sm">
-                                    <Building2 size={14} className="text-zinc-400"/>
-                                    <span className="text-sm text-zinc-300 font-semibold">
-                                        {member.branch_count} {member.branch_count === 1 ? 'sede' : 'sedes'}
+                                <div className="flex items-center gap-2 bg-zinc-950/30 px-3 py-2 rounded-lg border border-zinc-800/50">
+                                    <Building2 size={14} className="text-zinc-500"/>
+                                    <span className="text-sm text-zinc-400 font-semibold">
+                                        {member.branch_count} <span className="text-[10px] uppercase text-zinc-600">Sedes</span>
                                     </span>
                                 </div>
                             </div>
                             
-                            {/* Hover action hint */}
-                            <div className="mt-3 text-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <p className="text-xs text-indigo-400 font-semibold">Ver ficha completa →</p>
+                            {/* Quick Actions Footer */}
+                            <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
+                                <div className="flex gap-2">
+                                    {member.phone && (
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                window.open(`https://wa.me/${member.phone?.replace('+', '')}`, '_blank')
+                                            }}
+                                            className="p-2 rounded-full bg-zinc-800 hover:bg-emerald-600 text-zinc-400 hover:text-white transition-colors"
+                                            title="WhatsApp"
+                                        >
+                                            <Phone size={14}/>
+                                        </button>
+                                    )}
+                                    {member.email && (
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                window.open(`mailto:${member.email}`, '_blank')
+                                            }}
+                                            className="p-2 rounded-full bg-zinc-800 hover:bg-indigo-600 text-zinc-400 hover:text-white transition-colors"
+                                            title="Enviar Email"
+                                        >
+                                            <Mail size={14}/>
+                                        </button>
+                                    )}
+                                    {!member.phone && !member.email && (
+                                        <span className="text-[10px] text-zinc-600 italic pl-1">Sin contacto</span>
+                                    )}
+                                </div>
+                                <p className="text-xs text-zinc-500 font-bold flex items-center gap-1">
+                                    Ver Ficha <Clock size={10}/>
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -555,52 +645,80 @@ export default function StaffPage() {
                     
                     {activeTab === 'profile' && (
                         <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-bold text-zinc-500 uppercase">Especialidad</label>
-                                <div className="relative">
-                                    <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16}/>
-                                    <input type="text" className="w-full bg-zinc-900 border border-zinc-800 rounded p-3 pl-10 text-white mt-1 focus:border-indigo-500 outline-none"
-                                        placeholder="Ej: Salsa" value={formData.specialty} onChange={e => setFormData({...formData, specialty: e.target.value})} />
+                            {/* Personal Details Card */}
+                            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4">
+                                <h3 className="text-sm font-bold text-white border-b border-zinc-800 pb-2">Información Personal</h3>
+                                <div>
+                                    <label className="text-xs font-bold text-zinc-500 uppercase">Especialidad</label>
+                                    <div className="relative">
+                                        <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16}/>
+                                        <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded p-3 pl-10 text-white mt-1 focus:border-indigo-500 outline-none hover:bg-zinc-900 transition-colors"
+                                            placeholder="Ej: Salsa" value={formData.specialty} onChange={e => setFormData({...formData, specialty: e.target.value})} />
+                                    </div>
                                 </div>
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-zinc-500 uppercase">Teléfono</label>
-                                <div className="relative">
-                                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16}/>
-                                    <input type="text" className="w-full bg-zinc-900 border border-zinc-800 rounded p-3 pl-10 text-white mt-1 focus:border-indigo-500 outline-none"
-                                        value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+                                <div>
+                                    <label className="text-xs font-bold text-zinc-500 uppercase">Teléfono</label>
+                                    <div className="relative">
+                                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16}/>
+                                        <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded p-3 pl-10 text-white mt-1 focus:border-indigo-500 outline-none hover:bg-zinc-900 transition-colors"
+                                            value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+                                    </div>
                                 </div>
                             </div>
                             
-                            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-zinc-800">
-                                <div>
-                                    <label className="text-xs font-bold text-emerald-500 uppercase flex items-center gap-1"><DollarSign size={12}/> Salario Base</label>
-                                    <input 
-                                        type="text" 
-                                        inputMode="numeric"
-                                        className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-white mt-1 focus:border-emerald-500 outline-none"
-                                        value={formData.base_salary} 
-                                        onChange={e => setFormData({...formData, base_salary: e.target.value.replace(/[^0-9]/g, '')})} 
-                                        placeholder="0"
-                                    />
+                            {/* Financial Details Card */}
+                            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4">
+                                <h3 className="text-sm font-bold text-white border-b border-zinc-800 pb-2 flex items-center justify-between">
+                                    <span>Configuración Financiera</span>
+                                    <DollarSign size={14} className="text-emerald-500"/>
+                                </h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-1 mb-1">Salario Base</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-mono">$</span>
+                                            <input 
+                                                type="text" 
+                                                inputMode="numeric"
+                                                className="w-full bg-zinc-950 border border-zinc-800 rounded p-3 pl-8 text-white focus:border-emerald-500 outline-none font-mono"
+                                                value={formData.base_salary} 
+                                                onChange={e => setFormData({...formData, base_salary: e.target.value.replace(/[^0-9]/g, '')})} 
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-1 mb-1">Comisión</label>
+                                        <div className="relative">
+                                            <input 
+                                                type="text" 
+                                                inputMode="decimal"
+                                                className="w-full bg-zinc-950 border border-zinc-800 rounded p-3 pr-8 text-white focus:border-amber-500 outline-none font-mono"
+                                                value={formData.commission_percentage} 
+                                                onChange={e => setFormData({...formData, commission_percentage: e.target.value.replace(/[^0-9.]/g, '')})}
+                                                placeholder="0.0"
+                                            />
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">%</span>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-xs font-bold text-amber-500 uppercase flex items-center gap-1"><Percent size={12}/> Comisión</label>
-                                    <input 
-                                        type="text" 
-                                        inputMode="decimal"
-                                        className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-white mt-1 focus:border-amber-500 outline-none"
-                                        value={formData.commission_percentage} 
-                                        onChange={e => setFormData({...formData, commission_percentage: e.target.value.replace(/[^0-9.]/g, '')})}
-                                        placeholder="0.0"
-                                    />
-                                    <p className="text-[10px] text-zinc-500 mt-1">Ej: 0.10 para 10%</p>
-                                </div>
+                                <p className="text-[10px] text-zinc-500 italic">
+                                    * La comisión se calcula sobre las clases impartidas.
+                                </p>
                             </div>
 
-                            <button onClick={handleUpdateProfile} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded mt-4">
-                                Guardar Perfil
-                            </button>
+                            <div className="pt-2 space-y-3">
+                                <button onClick={handleUpdateProfile} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/10 flex items-center justify-center gap-2">
+                                    <Save size={18}/> Guardar Perfil
+                                </button>
+                                
+                                <button 
+                                    onClick={() => navigate('/finance')}
+                                    className="w-full bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                                >
+                                    Ir a Tesorería (Nómina) <ArrowRight size={16}/>
+                                </button>
+                            </div>
                         </div>
                     )}
 

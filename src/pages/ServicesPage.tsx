@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { 
   Plus, Search, Tag, Package, CalendarRange, 
   MoreVertical, DollarSign, Archive, Trash2,
-  CreditCard, CalendarDays, Loader2, X, CheckCircle2 
+  CreditCard, CalendarDays, Loader2, CheckCircle2 
 } from 'lucide-react'
 import { Drawer } from '../components/Drawer'
 import { EmptyState } from '../components/EmptyState'
@@ -263,6 +263,14 @@ export default function ServicesPage() {
     }
   }
 
+  // --- KPIS DASHBOARD ---
+  const kpiStats = useMemo(() => {
+    const activeServices = services.filter(s => s.is_active).length
+    const activePlans = plans.filter(s => s.is_active).length
+    const archived = [...services, ...plans].filter(s => !s.is_active).length
+    return { activeServices, activePlans, archived }
+  }, [services, plans])
+
   const currentList = activeTab === 'services' ? services : plans
   const filteredList = currentList.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
 
@@ -289,7 +297,7 @@ export default function ServicesPage() {
                 
                 <button 
                     onClick={handleOpenCreate}
-                    className={`flex items-center justify-center gap-2 px-4 py-2 text-white rounded-md transition-colors ${
+                    className={`flex items-center justify-center gap-2 px-4 py-2 text-white rounded-md transition-colors shadow-lg shadow-indigo-500/20 ${
                         activeTab === 'services' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'
                     }`}
                 >
@@ -298,12 +306,47 @@ export default function ServicesPage() {
                 </button>
             </div>
 
+            {/* KPI GRID */}
+            {!loading && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl flex items-center justify-between relative overflow-hidden group">
+                        <div className="relative z-10">
+                            <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Servicios Activos</p>
+                            <p className="text-3xl font-bold text-white font-mono">{kpiStats.activeServices}</p>
+                        </div>
+                        <div className="h-12 w-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500 border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-colors">
+                            <Tag size={24} />
+                        </div>
+                        <div className="absolute -right-6 -bottom-6 h-24 w-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-colors"></div>
+                    </div>
+                    <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl flex items-center justify-between relative overflow-hidden group">
+                        <div className="relative z-10">
+                            <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Planes Activos</p>
+                            <p className="text-3xl font-bold text-white font-mono">{kpiStats.activePlans}</p>
+                        </div>
+                        <div className="h-12 w-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500 border border-emerald-500/20 group-hover:bg-emerald-500/20 transition-colors">
+                            <CreditCard size={24} />
+                        </div>
+                        <div className="absolute -right-6 -bottom-6 h-24 w-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors"></div>
+                    </div>
+                    <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl flex items-center justify-between relative overflow-hidden group">
+                        <div className="relative z-10">
+                            <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Items Archivados</p>
+                            <p className="text-3xl font-bold text-white font-mono">{kpiStats.archived}</p>
+                        </div>
+                        <div className="h-12 w-12 bg-zinc-800 rounded-xl flex items-center justify-center text-zinc-400 border border-zinc-700 group-hover:bg-zinc-700 transition-colors">
+                            <Archive size={24} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* TAB SWITCHER */}
-            <div className="flex p-1 bg-zinc-900 border border-zinc-800 rounded-lg w-full sm:w-fit">
+            <div className="flex p-1 bg-zinc-900 border border-zinc-800 rounded-lg w-full sm:w-fit self-start">
                 <button
                     onClick={() => setActiveTab('services')}
                     className={`flex-1 sm:flex-none px-6 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-                        activeTab === 'services' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+                        activeTab === 'services' ? 'bg-zinc-800 text-white shadow ring-1 ring-zinc-700' : 'text-zinc-500 hover:text-zinc-300'
                     }`}
                 >
                     <Tag size={16}/> Servicios
@@ -311,7 +354,7 @@ export default function ServicesPage() {
                 <button
                     onClick={() => setActiveTab('plans')}
                     className={`flex-1 sm:flex-none px-6 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-                        activeTab === 'plans' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+                        activeTab === 'plans' ? 'bg-zinc-800 text-white shadow ring-1 ring-zinc-700' : 'text-zinc-500 hover:text-zinc-300'
                     }`}
                 >
                     <CreditCard size={16}/> Planes y Membresías
@@ -356,64 +399,104 @@ export default function ServicesPage() {
                         key={item.id} 
                         onClick={() => handleOpenEdit(item)}
                         className={`
-                            relative p-6 rounded-2xl border flex flex-col justify-between transition-all duration-300 cursor-pointer group card-hover animate-in slide-in-from-bottom duration-500
+                            relative p-6 rounded-2xl border flex flex-col justify-between transition-all duration-300 cursor-pointer group card-hover animate-in slide-in-from-bottom duration-500 hover:shadow-xl
                             ${!item.is_active 
                                 ? 'bg-zinc-950/50 border-zinc-800 opacity-60' 
-                                : 'bg-gradient-to-br from-zinc-900 to-zinc-950 border-zinc-800 hover:border-indigo-500/40 hover:shadow-xl hover:shadow-indigo-500/10'}
+                                : activeTab === 'services'
+                                    ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/40 hover:shadow-indigo-500/10'
+                                    : 'bg-zinc-900 border-zinc-800 hover:border-emerald-500/40 hover:shadow-emerald-500/10'
+                            }
                         `}
                         style={{ animationDelay: `${index * 0.05}s` }}
                     >
                         <div>
-                            <div className="flex justify-between items-start mb-2">
-                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border flex items-center gap-1 w-fit ${
+                            <div className="flex justify-between items-start mb-4">
+                                <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase border flex items-center gap-1 w-fit tracking-wider ${
                                     activeTab === 'services' 
-                                    ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' 
-                                    : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                                    ? 'text-indigo-300 bg-indigo-500/10 border-indigo-500/20' 
+                                    : 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
                                 }`}>
                                     {activeTab === 'services' ? <Tag size={12}/> : <CalendarRange size={12}/>} 
                                     {activeTab === 'services' ? 'Servicio' : 'Plan'}
                                 </span>
-                                <MoreVertical size={16} className="text-zinc-600 group-hover:text-white transition-colors"/>
+                                
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-800 rounded-full p-1.5 text-zinc-400 hover:bg-zinc-700 hover:text-white">
+                                    <MoreVertical size={16} />
+                                </div>
                             </div>
                             
-                            <h3 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-400 transition-colors">
+                            <h3 className="text-xl font-bold text-white mb-2 group-hover:text-zinc-200 transition-colors">
                                 {item.name}
                             </h3>
+
+                            {/* PRICE HERO */}
+                            <div className="mb-4">
+                                <span className="text-zinc-500 text-lg align-top">$</span>
+                                <span className={`text-4xl font-mono font-bold tracking-tight ${
+                                    activeTab === 'services' ? 'text-white' : 'text-emerald-400'
+                                }`}>
+                                    {item.price}
+                                </span>
+                            </div>
                             
                             {activeTab === 'services' ? (
                                 item.description ? (
-                                    <p className="text-sm text-zinc-500 line-clamp-2 h-10">
+                                    <p className="text-sm text-zinc-500 line-clamp-2 leading-relaxed">
                                         {item.description}
                                     </p>
-                                ) : null
+                                ) : <p className="text-sm text-zinc-600 italic">Sin descripción.</p>
                             ) : (
-                                <div className="mt-2 space-y-1">
-                                    <div className="flex items-center gap-2 text-xs text-zinc-400">
-                                        <Tag size={12} className="text-indigo-400"/> 
-                                        <span>Incluye: <strong className="text-indigo-300">
-                                          {item.plan_services_access && item.plan_services_access.length > 0
-                                            ? item.plan_services_access.map(psa => psa.services?.name).filter(Boolean).join(', ')
-                                            : item.service?.name || 'Sin servicio vinculado'}
-                                        </strong></span>
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap gap-2">
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-400">
+                                            <CalendarDays size={12} className="text-zinc-500"/>
+                                            <span className="text-zinc-200 font-medium">{item.duration_days} Días</span>
+                                        </span>
+                                        
+                                        {(item as any).recurring_enabled && (
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500">
+                                                <CheckCircle2 size={12}/>
+                                                <span className="font-bold">Recurrente</span>
+                                            </span>
+                                        )}
                                     </div>
-                                    <div className="flex items-center gap-2 text-xs text-zinc-400">
-                                        <CalendarDays size={12}/> 
-                                        <span>Duración: <strong className="text-zinc-300">{item.duration_days} días</strong></span>
+                                    
+                                    <div className="pt-3 border-t border-zinc-800/50">
+                                        <p className="text-xs text-zinc-500 mb-1.5 font-medium uppercase tracking-wider">Incluye acceso a:</p>
+                                        <div className="flex flex-wrap gap-1">
+                                            {item.plan_services_access && item.plan_services_access.length > 0
+                                                ? item.plan_services_access.map((psa, i) => (
+                                                    <span key={i} className="text-[11px] text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded border border-zinc-700">
+                                                        {psa.services?.name}
+                                                    </span>
+                                                ))
+                                                : <span className="text-[11px] text-zinc-500 italic">{item.service?.name || 'Todo el catálogo'}</span>
+                                            }
+                                        </div>
                                     </div>
                                 </div>
                             )}
                         </div>
-
-                        <div className="mt-4 pt-4 border-t border-zinc-800/50 flex items-center justify-between">
-                            <div className="text-2xl font-bold text-white flex items-center">
-                                <span className="text-zinc-500 text-base font-normal mr-1">$</span>
-                                {item.price}
-                            </div>
-                            {!item.is_active && (
+ 
+                        {/* FOOTER ACTIONS */}
+                        <div className="mt-5 pt-4 border-t border-zinc-800 flex items-center justify-between">
+                             {!item.is_active ? (
                                 <span className="text-xs text-red-500 flex items-center gap-1 font-bold border border-red-900/50 bg-red-900/20 px-2 py-1 rounded">
                                     <Archive size={12}/> ARCHIVADO
                                 </span>
+                            ) : (
+                                <span className="text-xs text-zinc-600 font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    Click para editar
+                                </span>
                             )}
+                            
+                            <div className={`h-8 w-8 rounded-full flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0 ${
+                                activeTab === 'services' 
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
+                                : 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+                            }`}>
+                                <CheckCircle2 size={16} />
+                            </div>
                         </div>
                     </div>
                 ))
@@ -468,71 +551,70 @@ export default function ServicesPage() {
                     <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800 space-y-4">
                         <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-wider">Configuración de Membresía</h4>
                         
-                        {/* SERVICIOS VINCULADOS (MULTI-SELECT) */}
-                        <div>
-                            <label className="block text-xs font-medium text-zinc-400 mb-1">
-                                ¿Qué servicios incluye este plan? <span className="text-red-400">*</span>
-                            </label>
-                            {formData.service_ids.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mb-2">
-                                {formData.service_ids.map(sid => {
-                                  const svc = availableServices.find(s => s.id === sid)
-                                  return svc ? (
-                                    <span key={sid} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                                      {svc.name}
-                                      <button type="button" onClick={() => setFormData({...formData, service_ids: formData.service_ids.filter(id => id !== sid)})} className="ml-0.5 hover:text-white transition-colors">
-                                        <X size={12} />
+                            {/* SERVICIOS VINCULADOS (MULTI-SELECT GRID) */}
+                            <div>
+                                <label className="block text-xs font-medium text-zinc-400 mb-2">
+                                    ¿Qué servicios incluye este plan? <span className="text-red-400">*</span>
+                                </label>
+                                
+                                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                                  {availableServices.map(s => {
+                                    const isChecked = formData.service_ids.includes(s.id)
+                                    return (
+                                      <button
+                                        key={s.id}
+                                        type="button"
+                                        onClick={() => {
+                                          const newIds = isChecked
+                                            ? formData.service_ids.filter(id => id !== s.id)
+                                            : [...formData.service_ids, s.id]
+                                          setFormData({...formData, service_ids: newIds})
+                                        }}
+                                        className={`relative flex items-center gap-3 p-3 text-left transition-all border rounded-lg group ${
+                                          isChecked 
+                                            ? 'bg-emerald-500/10 border-emerald-500/50 shadow-[0_0_10px_-3px_rgba(16,185,129,0.3)]' 
+                                            : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800'
+                                        }`}
+                                      >
+                                        <div className={`h-5 w-5 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
+                                            isChecked 
+                                            ? 'bg-emerald-500 border-emerald-500' 
+                                            : 'border-zinc-600 group-hover:border-zinc-500'
+                                        }`}>
+                                          {isChecked && <CheckCircle2 size={12} className="text-white" />}
+                                        </div>
+                                        <span className={`text-sm font-medium ${isChecked ? 'text-white' : 'text-zinc-400 group-hover:text-zinc-200'}`}>
+                                            {s.name}
+                                        </span>
                                       </button>
-                                    </span>
-                                  ) : null
-                                })}
-                              </div>
-                            )}
-                            <div className="space-y-1 max-h-36 overflow-y-auto border border-zinc-800 rounded-lg bg-zinc-950 divide-y divide-zinc-800/50">
-                              {availableServices.map(s => {
-                                const isChecked = formData.service_ids.includes(s.id)
-                                return (
-                                  <button
-                                    key={s.id}
-                                    type="button"
-                                    onClick={() => {
-                                      const newIds = isChecked
-                                        ? formData.service_ids.filter(id => id !== s.id)
-                                        : [...formData.service_ids, s.id]
-                                      setFormData({...formData, service_ids: newIds})
-                                    }}
-                                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors text-sm ${
-                                      isChecked ? 'bg-emerald-500/10 text-emerald-300' : 'hover:bg-zinc-800 text-white'
-                                    }`}
-                                  >
-                                    <div className={`h-4 w-4 rounded border flex items-center justify-center flex-shrink-0 ${isChecked ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600'}`}>
-                                      {isChecked && <CheckCircle2 size={10} className="text-white" />}
-                                    </div>
-                                    {s.name}
-                                  </button>
-                                )
-                              })}
-                              {availableServices.length === 0 && (
-                                <p className="text-xs text-zinc-600 text-center py-3">No hay servicios activos</p>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-zinc-500 mt-1">
-                                El alumno tendrá acceso a TODAS las clases de los servicios seleccionados durante la duración del plan.
-                            </p>
-                        </div>
+                                    )
+                                  })}
+                                </div>
 
-                        <div>
-                            <label className="block text-xs font-medium text-zinc-400 mb-1">Duración (Días)</label>
-                            <input 
-                                required 
-                                type="text"
-                                inputMode="numeric"
-                                placeholder="30"
-                                className="w-full h-10 px-3 bg-zinc-900 border border-zinc-700 rounded-md text-white focus:outline-none focus:border-emerald-500"
-                                value={formData.duration_days} 
-                                onChange={e => setFormData({...formData, duration_days: e.target.value.replace(/[^0-9]/g, '')})} 
-                            />
-                        </div>
+                                {availableServices.length === 0 && (
+                                    <div className="text-center py-4 border border-zinc-800 rounded-lg bg-zinc-900/50 border-dashed">
+                                        <p className="text-xs text-zinc-500">No hay servicios activos para seleccionar.</p>
+                                    </div>
+                                )}
+                                
+                                <p className="text-[10px] text-zinc-500 mt-2 flex items-center gap-1">
+                                    <CheckCircle2 size={10} className="text-emerald-500"/>
+                                    El alumno tendrá acceso ilimitado a los servicios seleccionados.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-zinc-400 mb-1">Duración (Días)</label>
+                                <input 
+                                    required 
+                                    type="text"
+                                    inputMode="numeric"
+                                    placeholder="30"
+                                    className="w-full h-10 px-3 bg-zinc-900 border border-zinc-700 rounded-md text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                                    value={formData.duration_days} 
+                                    onChange={e => setFormData({...formData, duration_days: e.target.value.replace(/[^0-9]/g, '')})} 
+                                />
+                            </div>
 
                         {/* CONFIGURACIÓN DE CLASES RECURRENTES */}
                         <div className="border-t border-zinc-700 pt-4 mt-4">
@@ -543,18 +625,18 @@ export default function ServicesPage() {
                                 <button 
                                     type="button"
                                     onClick={() => setFormData({...formData, recurring_enabled: !formData.recurring_enabled})}
-                                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${
-                                        formData.recurring_enabled 
-                                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' 
-                                            : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                        formData.recurring_enabled ? 'bg-amber-500' : 'bg-zinc-700'
                                     }`}
                                 >
-                                    {formData.recurring_enabled ? 'Activado' : 'Desactivado'}
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                        formData.recurring_enabled ? 'translate-x-6' : 'translate-x-1'
+                                    }`}/>
                                 </button>
                             </div>
 
                             {formData.recurring_enabled && (
-                                <div className="space-y-4 bg-zinc-900/80 p-4 rounded-lg border border-zinc-700">
+                                <div className="space-y-4 bg-zinc-900/80 p-4 rounded-lg border border-zinc-700 animate-in fade-in slide-in-from-top-2 duration-300">
                                     {/* Días de la semana */}
                                     <div>
                                         <label className="block text-xs font-medium text-zinc-400 mb-2">
@@ -579,18 +661,18 @@ export default function ServicesPage() {
                                                             : [...formData.recurring_days, day.num].sort()
                                                         setFormData({...formData, recurring_days: days})
                                                     }}
-                                                    className={`h-10 rounded font-bold text-xs transition-all ${
+                                                    className={`h-9 rounded-lg font-bold text-xs transition-all ${
                                                         formData.recurring_days.includes(day.num)
-                                                            ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/50'
-                                                            : 'bg-zinc-800 text-zinc-500 border border-zinc-700 hover:border-zinc-600'
+                                                            ? 'bg-amber-500 text-zinc-900 shadow-lg shadow-amber-500/20 scale-105'
+                                                            : 'bg-zinc-800 text-zinc-500 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-300'
                                                     }`}
                                                 >
                                                     {day.name}
                                                 </button>
                                             ))}
                                         </div>
-                                        <p className="text-[10px] text-zinc-500 mt-1">
-                                            Ejemplo: Si seleccionas Martes y Jueves, se crearán clases automáticamente esos días durante todo el período de la membresía
+                                        <p className="text-[10px] text-zinc-500 mt-2">
+                                            Selecciona los días en que se generarán clases automáticamente.
                                         </p>
                                     </div>
 
@@ -632,14 +714,12 @@ export default function ServicesPage() {
                                                 </option>
                                             ))}
                                         </select>
-                                        <p className="text-[10px] text-zinc-500 mt-1">
-                                            Si no asignas profesor, deberás hacerlo manualmente en cada clase generada
-                                        </p>
                                     </div>
 
-                                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+                                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 flex gap-2">
+                                        <CalendarRange size={16} className="text-amber-500 shrink-0"/>
                                         <p className="text-[11px] text-amber-400/80 leading-relaxed">
-                                            ⚡ Al activar una membresía con este plan, se crearán automáticamente todas las clases en el calendario según los días configurados.
+                                            Esta función generará citas en la agenda automáticamente. Úsala solo si el plan implica un horario fijo para el grupo.
                                         </p>
                                     </div>
                                 </div>

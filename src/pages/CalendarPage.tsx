@@ -77,6 +77,11 @@ export default function CalendarPage() {
   const [teachers, setTeachers] = useState<Profile[]>([])
   const [services, setServices] = useState<Service[]>([])
   
+  // PLANS for Group Selection
+  const [plans, setPlans] = useState<Array<{ id: string, name: string, recurring_enabled: boolean }>>([])
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('')
+  const [loadingGroup, setLoadingGroup] = useState(false)
+  
   // MEMBRESÍAS (batch para todos los alumnos seleccionados)
   const [allMemberships, setAllMemberships] = useState<ActiveMembership[]>([])
   const [checkingMembership, setCheckingMembership] = useState(false)
@@ -141,14 +146,16 @@ export default function CalendarPage() {
     
     const loadFormData = async () => {
       try {
-        const [resS, resT, resV] = await Promise.all([
+        const [resS, resT, resV, plansReq] = await Promise.all([
           supabase.from('students').select('id, first_name, last_name').eq('organization_id', orgId),
           
           supabase.from('available_teachers_view')
             .select('id, full_name, type, specific_branch_id')
             .eq('organization_id', orgId),
 
-          supabase.from('services').select('id, name, price').eq('organization_id', orgId)
+          supabase.from('services').select('id, name, price').eq('organization_id', orgId),
+          
+          supabase.from('plans').select('id, name, recurring_enabled').eq('organization_id', orgId).eq('is_active', true)
         ])
 
         if (resS.data) setStudents(resS.data)
@@ -162,10 +169,43 @@ export default function CalendarPage() {
         }
 
         if (resV.data) setServices(resV.data)
+        if (plansReq.data) setPlans(plansReq.data)
       } catch (e) { console.error(e) }
     }
     loadFormData()
   }, [isDrawerOpen, orgId, branchId])
+
+  // --- 2C. LOAD GROUP (TURMA) ---
+  const handleLoadGroup = async (planId: string) => {
+    if (!planId) return
+    setLoadingGroup(true)
+    try {
+        // Fetch active memberships for this plan
+        const { data } = await supabase
+            .from('memberships')
+            .select('student_id')
+            .eq('plan_id', planId)
+            .eq('status', 'active')
+            .gte('end_date', new Date().toISOString())
+        
+        if (data && data.length > 0) {
+            const studentIds = data.map(m => m.student_id)
+            // Merge with existing selection
+            const combined = [...new Set([...formData.student_ids, ...studentIds])]
+            
+            setFormData(prev => ({ ...prev, student_ids: combined }))
+            checkStudentMemberships(combined)
+            showToast(`${studentIds.length} alumnos agregados del grupo`, 'success')
+        } else {
+            showToast('No hay alumnos activos en este plan/grupo', 'info')
+        }
+    } catch (e) {
+        console.error(e)
+        showToast('Error cargando grupo', 'error')
+    } finally {
+        setLoadingGroup(false)
+    }
+  }
 
   // --- 2B. VERIFICAR MEMBRESÍAS (batch) ---
   const checkStudentMemberships = async (studentIds: string[]) => {
@@ -758,72 +798,141 @@ export default function CalendarPage() {
       >
         <form onSubmit={handleSave} className="space-y-6" autoComplete="off">
           
-          {/* MULTI-SELECT ALUMNOS */}
-          <div>
-            <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">
-              Alumnos {formData.student_ids.length > 0 && <span className="text-indigo-400">({formData.student_ids.length})</span>}
-            </label>
+          {/* 1. SELECCIÓN DE ALUMNOS INTELIGENTE */}
+          <div className="space-y-4">
             
-            {/* Selected chips */}
+            {/* A. SELECTOR DE GRUPO (TURMA) */}
+            <div className="bg-zinc-900 p-3 rounded-lg border border-zinc-800">
+                <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2">
+                        <Users size={12}/> Seleccionar por Grupo / Plan
+                    </label>
+                    {loadingGroup && <Loader2 size={12} className="animate-spin text-indigo-500"/>}
+                </div>
+                <div className="flex gap-2">
+                    <select 
+                        className="flex-1 bg-zinc-950 border border-zinc-700 rounded-md text-sm text-white px-3 py-2 outline-none focus:border-indigo-500 appearance-none"
+                        value={selectedPlanId}
+                        onChange={(e) => {
+                            const pid = e.target.value
+                            setSelectedPlanId(pid)
+                            if (pid) handleLoadGroup(pid)
+                        }}
+                    >
+                        <option value="">-- Cargar alumnos de una membresía --</option>
+                        {plans.map(p => (
+                            <option key={p.id} value={p.id}>{p.name} {p.recurring_enabled ? '(Recurrente)' : ''}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            {/* B. AVISO DE RECURRENCIA */}
+            {selectedPlanId && plans.find(p => p.id === selectedPlanId)?.recurring_enabled && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+                    <RefreshCw size={16} className="text-amber-400 flex-shrink-0 mt-0.5"/>
+                    <div>
+                        <p className="text-xs font-bold text-amber-400">Clase Recurrente Detectada</p>
+                        <p className="text-[10px] text-zinc-400 mt-1 leading-relaxed">
+                            Al crear esta clase, los alumnos de este plan quedarán inscritos automáticamente en todas las sesiones futuras de este ciclo.
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* C. BUSCADOR Y CHECKLIST */}
+            <div>
+                <div className="flex items-center justify-between mb-2">
+                     <label className="text-xs font-bold text-zinc-500 uppercase">
+                        Lista de Alumnos {formData.student_ids.length > 0 && <span className="text-indigo-400">({formData.student_ids.length} seleccionados)</span>}
+                    </label>
+                    <button 
+                        type="button" 
+                        onClick={() => { setFormData({...formData, student_ids: []}); setAllMemberships([]) }}
+                        className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
+                    >
+                        Limpiar selección
+                    </button>
+                </div>
+
+                <div className="border border-zinc-700 rounded-xl overflow-hidden bg-zinc-900/50">
+                    {/* Search Bar */}
+                    <div className="relative border-b border-zinc-700/50">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                        <input
+                            type="text"
+                            placeholder="Buscar alumno por nombre..."
+                            value={studentSearch}
+                            onChange={e => setStudentSearch(e.target.value)}
+                            className="w-full pl-9 pr-3 py-3 bg-zinc-900/50 text-white text-sm placeholder:text-zinc-600 focus:outline-none"
+                        />
+                    </div>
+
+                    {/* Scrollable Checklist */}
+                    <div className="max-h-48 overflow-y-auto min-h-[150px] divide-y divide-zinc-800/50">
+                        {filteredStudents.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-8 text-zinc-600">
+                                <Search size={24} className="mb-2 opacity-50"/>
+                                <p className="text-xs">No se encontraron alumnos</p>
+                            </div>
+                        ) : (
+                            filteredStudents.map(s => {
+                                const isSelected = formData.student_ids.includes(s.id)
+                                return (
+                                    <div 
+                                        key={s.id} 
+                                        onClick={() => toggleStudent(s.id)}
+                                        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors hover:bg-zinc-800/50 ${
+                                            isSelected ? 'bg-indigo-500/5' : ''
+                                        }`}
+                                    >
+                                        <div className={`h-4 w-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${
+                                            isSelected 
+                                            ? 'bg-indigo-500 border-indigo-500' 
+                                            : 'border-zinc-600 bg-zinc-800'
+                                        }`}>
+                                            {isSelected && <CheckCircle2 size={10} className="text-white" />}
+                                        </div>
+                                        
+                                        <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                                            isSelected ? 'bg-indigo-500/20 text-indigo-400' : 'bg-zinc-800 text-zinc-500'
+                                        }`}>
+                                            {s.first_name[0]}
+                                        </div>
+
+                                        <span className={`text-sm truncate select-none ${isSelected ? 'text-white font-medium' : 'text-zinc-400'}`}>
+                                            {s.first_name} {s.last_name}
+                                        </span>
+                                    </div>
+                                )
+                            })
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* D. CHIPS DE SELECCIONADOS */}
             {selectedStudents.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
+              <div className="flex flex-wrap gap-1.5 p-3 rounded-lg bg-zinc-900 border border-zinc-800/50 max-h-24 overflow-y-auto scrollbar-thin">
                 {selectedStudents.map(s => {
                   const covered = formData.service_id ? isStudentCovered(s.id) : false
                   return (
-                    <span key={s.id} className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border ${
+                    <span key={s.id} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold border transition-all animate-in zoom-in-50 duration-200 ${
                       covered 
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
-                        : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300'
+                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                        : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-300'
                     }`}>
                       {s.first_name} {s.last_name}
-                      {covered && <CheckCircle2 size={12} />}
-                      <button type="button" onClick={() => removeStudent(s.id)} className="ml-0.5 hover:text-white transition-colors">
-                        <X size={12} />
+                      <button 
+                        type="button" 
+                        onClick={(e) => { e.stopPropagation(); removeStudent(s.id) }} 
+                        className="hover:text-red-400 transition-colors ml-0.5"
+                      >
+                        <X size={10} />
                       </button>
                     </span>
                   )
                 })}
-              </div>
-            )}
-
-            {/* Search + dropdown */}
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-              <input
-                type="text"
-                placeholder="Buscar alumno..."
-                value={studentSearch}
-                onChange={e => setStudentSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-white text-sm placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none transition-colors"
-              />
-            </div>
-
-            {studentSearch.length >= 1 && (
-              <div className="mt-1.5 max-h-40 overflow-y-auto border border-zinc-800 rounded-lg bg-zinc-950 divide-y divide-zinc-800/50">
-                {filteredStudents.length === 0 ? (
-                  <p className="text-xs text-zinc-600 text-center py-3">Sin resultados</p>
-                ) : (
-                  filteredStudents.slice(0, 8).map(s => {
-                    const isSelected = formData.student_ids.includes(s.id)
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => { toggleStudent(s.id); setStudentSearch('') }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
-                          isSelected ? 'bg-indigo-500/10 text-indigo-300' : 'hover:bg-zinc-800 text-white'
-                        }`}
-                      >
-                        <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                          isSelected ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-400'
-                        }`}>
-                          {isSelected ? <CheckCircle2 size={14} /> : s.first_name[0]}
-                        </div>
-                        <span className="text-sm">{s.first_name} {s.last_name}</span>
-                      </button>
-                    )
-                  })
-                )}
               </div>
             )}
           </div>
