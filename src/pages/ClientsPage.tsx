@@ -13,6 +13,8 @@ import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
 import { format, differenceInDays, addDays } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { SecurityPinModal } from '../components/SecurityPinModal'
+
 
 // --- TIPOS ---
 type Client = {
@@ -25,6 +27,7 @@ type Client = {
   birth_date: string | null
   notes: string | null
   status_label: 'solvente' | 'moroso' | 'sin_pagos'
+  is_active: boolean
 }
 
 type ActiveMembership = {
@@ -81,6 +84,9 @@ export default function ClientsPage() {
   const [availablePlans, setAvailablePlans] = useState<Plan[]>([])
   const [isAssigningPlan, setIsAssigningPlan] = useState(false)
   const [selectedPlanIdToAssign, setSelectedPlanIdToAssign] = useState('')
+
+  // ESTADO PIN MODAL
+  const [pinModalOpen, setPinModalOpen] = useState(false)
 
   const [submitting, setSubmitting] = useState(false)
   const [formData, setFormData] = useState({
@@ -323,6 +329,35 @@ export default function ClientsPage() {
     }
   }
 
+  const handleToggleActiveStatus = async () => {
+    if (!selectedClient) return
+    try {
+        const currentStatus = (selectedClient as any).is_active !== false // Default true
+        const newStatus = !currentStatus
+
+        const { error } = await supabase
+            .from('students')
+            .update({ is_active: newStatus })
+            .eq('id', selectedClient.id)
+
+        if (error) throw error
+
+        showToast(
+            `Alumno ${newStatus ? 'reactivado' : 'desactivado'} correctamente`,
+            'success'
+        )
+        
+        // Refresh local state without full reload if possible, or just close drawer
+        // Ideally update the list and selected items
+        loadClients()
+        setSelectedClient(prev => prev ? ({ ...prev, is_active: newStatus } as any) : null)
+        
+    } catch (err: any) {
+        console.error("Error toggling status:", err)
+        showToast("Error al actualizar estado", "error")
+    }
+  }
+
   // ✅ OPTIMIZACIÓN: Memoizar filtrado para evitar recálculos innecesarios
   const filteredClients = useMemo(
     () => clients.filter(c =>
@@ -504,15 +539,21 @@ export default function ClientsPage() {
                 <div className="h-16 w-16 rounded-full bg-zinc-800 flex items-center justify-center text-3xl font-bold text-white border border-zinc-700 shadow-lg">
                     {selectedClient.first_name[0]}
                 </div>
-                <div>
-                    <h2 className="text-xl font-bold text-white">{selectedClient.first_name} {selectedClient.last_name}</h2>
-                    <div className="flex items-center gap-2 mt-1">
-                        <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getStatusColor(selectedClient.status_label)}`}>
-                            {selectedClient.status_label === 'solvente' ? <CheckCircle2 size={10}/> : <AlertTriangle size={10}/>}
-                            {selectedClient.status_label}
-                        </div>
+                <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                   <h3 className={`font-bold truncate ${selectedClient.is_active === false ? 'text-zinc-500 line-through' : 'text-white'}`}>
+                    {selectedClient.first_name} {selectedClient.last_name}
+                   </h3>
+                   {selectedClient.is_active === false && (
+                       <span className="text-[10px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20">INACTIVO</span>
+                   )}
+                </div>
+                <p className="text-zinc-500 text-xs truncate">{selectedClient.email}</p>
+                <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getStatusColor(selectedClient.status_label)}`}>
+                    {selectedClient.status_label === 'solvente' ? <CheckCircle2 size={10}/> : <AlertTriangle size={10}/>}
+                    {selectedClient.status_label}
+                </div>
                         <span className="text-zinc-600 text-[10px] uppercase font-mono">ID: {selectedClient.id.slice(0, 8)}</span>
-                    </div>
                 </div>
             </div>
 
@@ -769,7 +810,7 @@ export default function ClientsPage() {
                         </div>
                     )}
 
-                    {/* TAB 3: HISTORIAL */}
+                  {/* TAB 3: HISTORIAL */}
                     {activeTab === 'history' && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                             {history.length === 0 ? (
@@ -800,6 +841,24 @@ export default function ClientsPage() {
                     )}
                 </>
             )}
+            
+            {/* --- ACTION FOOTER (SOFT DELETE) --- */}
+            <div className="mt-8 border-t border-zinc-800 pt-6">
+                <button
+                    onClick={() => setPinModalOpen(true)}
+                    className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors ${
+                        (selectedClient as any).is_active === false
+                            ? 'bg-emerald-600/10 text-emerald-500 hover:bg-emerald-600/20 border border-emerald-600/20'
+                            : 'bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20'
+                    }`}
+                >
+                    {(selectedClient as any).is_active === false ? (
+                        <>Reactivar Alumno</>
+                    ) : (
+                        <>Desactivar Alumno</>
+                    )}
+                </button>
+            </div>
         </Drawer>
       )}
 
@@ -834,6 +893,14 @@ export default function ClientsPage() {
           </button>
         </form>
       </Drawer>
+
+      <SecurityPinModal
+        isOpen={pinModalOpen}
+        onClose={() => setPinModalOpen(false)}
+        onSuccess={handleToggleActiveStatus}
+        title={(selectedClient as any)?.is_active === false ? "Reactivar Alumno" : "Desactivar Alumno"}
+        description={`Para ${(selectedClient as any)?.is_active === false ? "reactivar" : "desactivar"} este expediente, ingresa tu PIN de seguridad.`}
+      />
     </>
   )
 }

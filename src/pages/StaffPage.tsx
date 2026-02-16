@@ -13,6 +13,7 @@ import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { SecurityPinModal } from '../components/SecurityPinModal'
 
 // --- TIPOS ---
 type StaffMember = {
@@ -27,7 +28,8 @@ type StaffMember = {
   avg_rating: number
   photo_url?: string
   role?: string
-  type?: string 
+  type?: string
+  is_active?: boolean
 }
 
 type Branch = { id: string; name: string }
@@ -97,6 +99,35 @@ export default function StaffPage() {
     base_salary: '', 
     commission_percentage: ''
   })
+  
+  // ESTADO PIN MODAL
+  const [pinModalOpen, setPinModalOpen] = useState(false)
+
+  // HANDLE TOGGLE STATUS (REACTIVAR/DESACTIVAR)
+  const handleToggleActiveStatus = async () => {
+    if (!selectedStaff) return
+
+    const currentStatus = selectedStaff.is_active !== false // Default true if undefined
+    const newStatus = !currentStatus
+    
+    // Identificar tabla correcta
+    const table = selectedStaff.type === 'system' ? 'profiles' : 'professionals'
+
+    const { error } = await supabase
+        .from(table)
+        .update({ is_active: newStatus })
+        .eq('id', selectedStaff.id)
+
+    if (error) throw error
+
+    showToast(
+        `Miembro ${newStatus ? 'reactivado' : 'desactivado'} correctamente`,
+        'success'
+    )
+
+    loadStaff()
+    setSelectedStaff(prev => prev ? ({ ...prev, is_active: newStatus }) : null)
+  }
 
   // --- CARGA INICIAL OPTIMIZADA ---
   useEffect(() => {
@@ -110,7 +141,7 @@ export default function StaffPage() {
     try {
       const { data, error } = await supabase
         .from('staff_details_view') 
-        .select('*')
+        .select('*, is_active')
         .eq('organization_id', orgId)
         .order('full_name', { ascending: true })
       
@@ -541,10 +572,13 @@ export default function StaffPage() {
                                 <div className="flex-1 min-w-0">
                                     <h3 className={`font-bold text-lg transition-colors truncate ${
                                         member.type === 'professional' ? 'text-white group-hover:text-purple-400' : 'text-white group-hover:text-indigo-400'
-                                    }`}>
+                                    } ${member.is_active === false ? 'line-through text-zinc-500' : ''}`}>
                                         {member.full_name}
                                     </h3>
-                                    <p className="text-xs text-zinc-500 uppercase font-semibold truncate">{member.specialty || 'Staff General'}</p>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-xs text-zinc-500 uppercase font-semibold truncate">{member.specialty || 'Staff General'}</p>
+                                        {member.is_active === false && <span className="text-[10px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20">INACTIVO</span>}
+                                    </div>
                                 </div>
                             </div>
                             
@@ -717,6 +751,32 @@ export default function StaffPage() {
                                     className="w-full bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
                                 >
                                     Ir a Tesorería (Nómina) <ArrowRight size={16}/>
+                                </button>
+                            </div>
+
+                            <div className="pt-6 border-t border-zinc-800 mt-6">
+                                <h3 className="text-xs font-bold text-red-500 uppercase mb-3 flex items-center gap-2">
+                                    <Shield size={12}/> Zona de Peligro
+                                </h3>
+                                <p className="text-xs text-zinc-500 mb-3">
+                                    {selectedStaff.is_active !== false 
+                                        ? "Al desactivar, este miembro no aparecerá en las listas de selección, pero mantendrá su historial."
+                                        : "Al reactivar, este miembro volverá a estar disponible en el sistema."
+                                    }
+                                </p>
+                                <button 
+                                    onClick={() => setPinModalOpen(true)}
+                                    className={`w-full py-3 rounded-xl font-bold transition-all border flex items-center justify-center gap-2 ${
+                                        selectedStaff.is_active !== false
+                                            ? "bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20"
+                                            : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20"
+                                    }`}
+                                >
+                                    {selectedStaff.is_active !== false ? (
+                                        <><Trash2 size={16}/> Desactivar Miembro</>
+                                    ) : (
+                                        <><Shield size={16}/> Reactivar Miembro</>
+                                    )}
                                 </button>
                             </div>
                         </div>
@@ -1024,6 +1084,16 @@ export default function StaffPage() {
              </div>
           </form>
       </Drawer>
+
+      <SecurityPinModal
+        isOpen={pinModalOpen}
+        onClose={() => setPinModalOpen(false)}
+        onSuccess={handleToggleActiveStatus}
+        title={selectedStaff?.is_active !== false ? "Desactivar Miembro" : "Reactivar Miembro"}
+        description={selectedStaff?.is_active !== false 
+            ? "Para desactivar a este miembro, ingresa el PIN de seguridad." 
+            : "Para reactivar a este miembro, ingresa el PIN de seguridad."}
+      />
     </>
   )
 }
